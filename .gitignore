@@ -1,0 +1,39 @@
+# ---------- Python ----------
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.eggs/
+
+# ---------- Godot ----------
+# 本地 Godot 引擎安装目录（可执行文件体积大，不纳入版本管理）
+tools/
+# Godot 导入缓存与编辑器状态
+.godot/
+*.godot_imported
+*.translation
+
+# ---------- 本地配置与敏感文件 ----------
+.env
+.env.*
+*.local
+secrets.json
+credentials.json
+
+# ---------- 临时文件与日志 ----------
+*.tmp
+*.log
+logs/
+
+# ---------- 截图工作目录 ----------
+# 运行时自动导出的原始截图；正式展示用截图已整理在 screenshots/
+.screenshots/
+
+# ---------- 工具与打包产物 ----------
+.trae-html-share-packages/
+node_modules/
+dist/
+build/
+*.exe
+*.dll

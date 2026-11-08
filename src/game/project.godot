@@ -1,0 +1,24 @@
+; HiMoyu 本地 Demo 的 Godot 工程配置
+; 阶段 0 只做 WebSocket 链路与占位 UI
+
+config_version=5
+
+[application]
+
+config/name="HiMoyu Office Demo"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

@@ -1,0 +1,46 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/prototype_3d/office_preview_3d.gd" id="1_preview"]
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+background_color = Color(0.937, 0.906, 0.847, 1)
+ambient_light_source = 2
+ambient_light_color = Color(1, 0.952, 0.900, 1)
+ambient_light_energy = 0.40
+tonemap_mode = 2
+tonemap_exposure = 0.92
+
+[node name="OfficePreview3D" type="Node3D"]
+script = ExtResource("1_preview")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-70, 20, 0)
+light_color = Color(1, 0.962, 0.912, 1)
+light_energy = 0.34
+shadow_enabled = true
+directional_shadow_mode = 2
+directional_shadow_blend_splits = true
+directional_shadow_max_distance = 22.0
+shadow_bias = 0.035
+shadow_normal_bias = 0.8
+shadow_opacity = 0.50
+
+[node name="FillLight" type="OmniLight3D" parent="."]
+position = Vector3(2.2, 2.7, 3.0)
+light_color = Color(1, 0.94, 0.87, 1)
+light_energy = 0.16
+omni_range = 9.0
+omni_attenuation = 1.1
+
+[node name="Camera3D" type="Camera3D" parent="."]
+projection = 1
+size = 5.9
+near = 0.05
+far = 60.0
+
+[node name="HUD" type="CanvasLayer" parent="."]
+layer = 10
