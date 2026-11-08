@@ -50,8 +50,12 @@ func configure(data: Dictionary, phase: float, index: int) -> void:
 func _ready() -> void:
 	if appearance.is_empty():
 		appearance = preview_preset(0)
+	# 标记为动态组：场景级静态合并会跳过员工，保证动画继续独立运行
+	add_to_group("dynamic_3d")
 	_make_materials()
 	_build_legs()
+	# 腿部不参与动画，直接合并为一批静态网格
+	MeshKit.bake_static(self)
 	_build_body()
 	_build_head()
 	_build_arms()
@@ -191,10 +195,17 @@ func _build_body() -> void:
 	)
 	hood.scale = Vector3(1.08, 0.68, 0.88)
 
+	# 胸腔内部（随呼吸缩放）合并为一批，降低单名员工的 draw call
+	MeshKit.bake_static(_chest)
+
+	# 肩膀 / 脖子 / 领口不随胸腔缩放，放在独立容器里再合并
+	var torso := Node3D.new()
+	torso.name = "TorsoStatic"
+	_body_group.add_child(torso)
 	# 肩膀：加大体积，让上半身轮廓更结实
 	for side in [-1.0, 1.0]:
 		MeshKit.lit(
-			_body_group,
+			torso,
 			MeshKit.sphere(0.102),
 			Vector3(0.205 * side, 0.375, 0.0),
 			_mat["shirt"]
@@ -202,18 +213,19 @@ func _build_body() -> void:
 
 	# 脖子
 	MeshKit.lit(
-		_body_group,
+		torso,
 		MeshKit.cylinder(0.052, 0.062, 0.105),
 		Vector3(0, 0.428, 0.01),
 		_mat["skin"]
 	)
 	# 领口
 	MeshKit.lit(
-		_body_group,
+		torso,
 		MeshKit.cylinder(0.115, 0.128, 0.038),
 		Vector3(0, 0.405, 0.012),
 		_mat["shirt_dark"]
 	)
+	MeshKit.bake_static(torso)
 
 	_head_pivot = Node3D.new()
 	_head_pivot.name = "HeadPivot"
@@ -244,6 +256,8 @@ func _build_arms() -> void:
 
 	_build_arm(l_shoulder, l_elbow, l_wrist, l_hand, -1.0)
 	_build_arm(r_shoulder, r_elbow, r_wrist, r_hand, 1.0)
+	# 手臂整体随 ArmsOnDesk 轻浮，合并后仍保留该动画
+	MeshKit.bake_static(_arm_group)
 
 
 func _build_arm(shoulder: Vector3, elbow: Vector3, wrist: Vector3, hand: Vector3, side: float) -> void:
@@ -321,6 +335,8 @@ func _build_head() -> void:
 	_build_hair(head)
 	_build_face(head)
 	_build_accessory(head)
+	# 头部的五官 / 发型 / 配饰均为刚性几何，合并后仍随 HeadPivot 一起轻晃
+	MeshKit.bake_static(head)
 
 
 func _build_hair(head: Node3D) -> void:

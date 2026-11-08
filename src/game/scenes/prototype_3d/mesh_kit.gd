@@ -199,6 +199,89 @@ static func lit(
 	return mi
 
 
+## ---------- 静态网格合并 ----------
+##
+## 25 人同屏时，工位家具与房间装饰会产生数千个 MeshInstance3D（每个都是一个 draw call）。
+## 把同一材质、同一阴影设置的小网格烘焙进一个 ArrayMesh，可把 draw calls 从数千降到几十。
+## 只用于静态几何：有动画的分组（员工身体/头部/手臂）需要在各自的组内单独合并。
+## dynamic_group 中的节点及其子树会被整体跳过。
+
+static func bake_static(root: Node3D, dynamic_group: String = "") -> int:
+	var buckets: Dictionary = {}
+	var sources: Array = []
+	_collect_static(root, Transform3D.IDENTITY, dynamic_group, buckets, sources)
+	if buckets.is_empty():
+		return 0
+
+	var index := 0
+	for key in buckets.keys():
+		var bucket: Dictionary = buckets[key]
+		var tool: SurfaceTool = bucket["tool"]
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, tool.commit_to_arrays())
+		mesh.surface_set_material(0, bucket["mat"])
+		var merged := MeshInstance3D.new()
+		merged.name = "StaticBatch%02d" % index
+		merged.mesh = mesh
+		merged.cast_shadow = int(bucket["shadow"])
+		root.add_child(merged)
+		index += 1
+
+	for source in sources:
+		if is_instance_valid(source):
+			source.queue_free()
+	return index
+
+
+static func _collect_static(
+	node: Node,
+	acc: Transform3D,
+	dynamic_group: String,
+	buckets: Dictionary,
+	sources: Array
+) -> void:
+	for child in node.get_children():
+		if not child is Node3D:
+			continue
+		if dynamic_group != "" and child.is_in_group(dynamic_group):
+			continue
+		var n := child as Node3D
+		var t := acc * n.transform
+		if n is MeshInstance3D:
+			var mi := n as MeshInstance3D
+			if mi.mesh == null:
+				continue
+			if mi.material_override != null:
+				_add_mesh_surface(buckets, mi.material_override, mi.cast_shadow, mi.mesh, 0, t)
+				sources.append(mi)
+			else:
+				for surface in range(mi.mesh.get_surface_count()):
+					var mat := mi.mesh.surface_get_material(surface)
+					if mat == null:
+						continue
+					_add_mesh_surface(buckets, mat, mi.cast_shadow, mi.mesh, surface, t)
+				sources.append(mi)
+			continue
+		_collect_static(n, t, dynamic_group, buckets, sources)
+
+
+static func _add_mesh_surface(
+	buckets: Dictionary,
+	mat: Material,
+	shadow: int,
+	mesh: Mesh,
+	surface: int,
+	transform: Transform3D
+) -> void:
+	var key := "%d|%d" % [mat.get_instance_id(), shadow]
+	if not buckets.has(key):
+		var tool := SurfaceTool.new()
+		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+		buckets[key] = {"tool": tool, "mat": mat, "shadow": shadow}
+	var tool: SurfaceTool = buckets[key]["tool"]
+	tool.append_from(mesh, surface, transform)
+
+
 ## 在两点之间放置一根胶囊，用于四肢、头发、线缆等。
 static func segment(
 	parent: Node3D,

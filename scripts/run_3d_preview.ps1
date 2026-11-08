@@ -1,5 +1,7 @@
 ﻿param(
     [switch]$Capture,
+    # 连续压力测试秒数（仅 full25 场景支持，0 表示不测试）
+    [int]$Soak = 0,
     # 3D 场景选择：sample = 3 工位样板（默认），full25 = 25 工位完整办公室
     [ValidateSet("sample", "full25")]
     [string]$Scene = "sample"
@@ -27,7 +29,13 @@ $scenePath = switch ($Scene) {
     default  { "res://scenes/prototype_3d/office_preview_3d.tscn" }
 }
 $args = @("--path", (Join-Path $root "src\game"), $scenePath)
+if ($Capture -or $Soak -gt 0) {
+    $args += "--"
+}
 if ($Capture) {
-    $args += @("--", "--capture")
+    $args += "--capture"
+}
+if ($Soak -gt 0) {
+    $args += "--soak=$Soak"
 }
 & $godot @args

@@ -106,22 +106,30 @@ func _build_desk() -> void:
 			Vector3(90, 0, 0)
 		)
 
-	# 工位号牌
+	# 工位号牌：阶段 1.5 改为立在前沿桌面上的桌牌。
+	# 原先贴在桌子正面的号牌会被前排椅背完全挡住，抬高到桌面以上后
+	# 01–25 在正面偏俯视镜头下都能完整露出，1080p 直播可辨认。
 	MeshKit.lit(
 		self,
-		MeshKit.rounded_box(Vector3(0.175, 0.115, 0.020), 0.5),
-		Vector3(0, 0.575, DESK_D * 0.5 + 0.006),
+		MeshKit.rounded_box(Vector3(0.300, 0.012, 0.075), 0.4),
+		Vector3(0, DESK_H + 0.006, DESK_D * 0.5 - 0.075),
+		_mat["metal_dark"]
+	)
+	MeshKit.lit(
+		self,
+		MeshKit.rounded_box(Vector3(0.300, 0.185, 0.018), 0.5),
+		Vector3(0, DESK_H + 0.105, DESK_D * 0.5 - 0.075),
 		MeshKit.material(Color("#fbf2e2"), 0.6)
 	)
 	var label := Label3D.new()
 	label.text = "%02d" % seat_index
-	label.font_size = 64
-	label.pixel_size = 0.0026
+	label.font_size = 76
+	label.pixel_size = 0.0023
 	label.modulate = Color("#34506a")
 	label.outline_size = 0
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.position = Vector3(0, 0.576, DESK_D * 0.5 + 0.018)
+	label.position = Vector3(0, DESK_H + 0.105, DESK_D * 0.5 - 0.062)
 	add_child(label)
 
 
