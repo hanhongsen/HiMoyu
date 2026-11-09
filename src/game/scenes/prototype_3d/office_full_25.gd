@@ -14,21 +14,50 @@ const Workstation3D := preload("res://scenes/prototype_3d/workstation_3d.gd")
 const Employee3D := preload("res://scenes/prototype_3d/employee_3d.gd")
 const MeshKit := preload("res://scenes/prototype_3d/mesh_kit.gd")
 
-# 5×5 工位网格：列距 2.08（桌宽 1.90 + 缝隙），排距 1.95（桌面 + 椅子 + 走道）
-const GRID_X := [-4.16, -2.08, 0.0, 2.08, 4.16]
-const GRID_Z := [-4.90, -2.95, -1.00, 0.95, 2.90]
+# 5×5 工位网格：列距 / 排距均为 2.60（桌宽 1.90 + 0.70 横向净空），
+# 为每个工位预留约 200px 的昵称名牌空间（1920 宽屏、正交尺寸 14.1 时）。
+# 编号 01–25 仍按「从左到右、从后到前（画面从上到下）」排列。
+# 2026-11-09 第二轮：整体下移 +0.80m，给老板办公室与主管工位之间腾出通道空间。
+const GRID_X := [-5.20, -2.60, 0.0, 2.60, 5.20]
+const GRID_Z := [-4.50, -1.90, 0.70, 3.30, 5.90]
 
 # 正面偏俯视正交相机：无水平旋转，从办公室正前方抬升约 35° 俯视。
-# CAM_SIZE 取 13.4 时，1920×1080 下水平可视约 23.8m，完整覆盖 22.4m 的房间。
+# CAM_SIZE 取 14.1 时，1920×1080 下水平可视约 25.07m，完整覆盖 24.4m 的房间。
 const CAM_OFFSET := Vector3(0.0, 14.95, 21.35)
-const CAM_TARGET := Vector3(0.0, 1.80, -1.0)
-const CAM_SIZE := 13.4
+const CAM_TARGET := Vector3(0.0, 1.80, -0.5)
+const CAM_SIZE := 14.1
 const CAM_POS := CAM_TARGET + CAM_OFFSET
+
+# ---- 观众昵称名牌（屏幕空间 UI，投影到 3D 工位头顶上方）----
+const NICKNAME_FONT_SIZE := 19
+const NICKNAME_HEIGHT := 34.0
+const NICKNAME_GAP_PX := 8.0
+# 名牌锚点：员工趴桌睡觉时头部上方（工位原点 + 该偏移）
+const NICKNAME_HEAD := Vector3(0.0, 1.32, -0.02)
+# 阶段 1.5 第二轮视觉测试用的 25 个模拟昵称（暂不接入真实抖音昵称）
+## 昵称覆盖任务要求的全部类型：短（小明 / 小王 / 摸鱼达人）、
+## 普通（今天不想上班 / 每天都想睡觉 / 我要一直摸鱼）、
+## 长（今天也要努力摸鱼的打工人 / 上班只是为了下班和工资）、
+## 中英混合（Moyu2026 / Hello小王 / HiMoyu_01），其余为同风格测试昵称。
+const MOCK_NICKNAMES := [
+	"小明", "小王", "摸鱼达人", "今天不想上班", "每天都想睡觉",
+	"今天也要努力摸鱼的打工人", "Moyu2026", "Hello小王", "老板看不见我", "咖啡续命中",
+	"打工人小张", "我要一直摸鱼", "摸鱼第一名", "睡到自然醒", "假装很忙",
+	"今天的砖很烫", "加班是不可能加的", "划水大师", "上班只是为了下班和工资", "HiMoyu_01",
+	"键盘侠小刘", "周一的怨念", "摸鱼中请勿打扰", "下班倒计时", "明天再说吧",
+]
 
 var _camera: Camera3D
 var _hud: CanvasLayer
 var _perf_panel: PanelContainer
 var _perf_label: Label
+var _ui_font: Font
+
+# ---- 25 个昵称名牌（屏幕空间）----
+var _name_layer: CanvasLayer
+var _name_panels: Array = []
+var _name_labels: Array = []
+var _name_anchors: Array = []
 
 var _capture := false
 var _perf_warm := 0
@@ -71,6 +100,7 @@ func _ready() -> void:
 	print("[3D-BATCH] static_surfaces=%d" % static_surfaces)
 	_build_hud()
 	_apply_camera()
+	_build_nickname_overlay()
 
 	if _soak:
 		_run_soak.call_deferred()
@@ -79,6 +109,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_update_nicknames()
 	if _soak:
 		if not _soak_done:
 			_soak_update(delta)
@@ -134,16 +165,16 @@ func _build_hud() -> void:
 	_hud.layer = 10
 	add_child(_hud)
 
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray([
+	_ui_font = SystemFont.new()
+	_ui_font.font_names = PackedStringArray([
 		"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
 	])
 
-	var title := _make_badge(font, "HiMoyu · 轻 3D 办公室（阶段 1.5 · 正面偏俯视）\n25 工位 · 老板玻璃办公室 / 主管工位 / 扩大会议室 · 全员趴桌睡觉", 20)
+	var title := _make_badge(_ui_font, "HiMoyu · 轻 3D 办公室（阶段 1.5 · 第二轮布局修正）\n25 工位 · 老板室在上 / 主管工位在下 · 工位间距 2.60m · 昵称名牌预留", 20)
 	title.position = Vector2(24, 20)
 	_hud.add_child(title)
 
-	_perf_panel = _make_badge(font, "性能采样中…", 20)
+	_perf_panel = _make_badge(_ui_font, "性能采样中…", 20)
 	_perf_panel.anchor_left = 1.0
 	_perf_panel.anchor_right = 1.0
 	_perf_panel.offset_left = -424
@@ -153,7 +184,7 @@ func _build_hud() -> void:
 	_hud.add_child(_perf_panel)
 	_perf_label = _perf_panel.get_child(0)
 
-	var foot := _make_badge(font, "正面偏俯视正交相机 · 工位 01–25 · 呼吸起伏 / 头部轻晃 / Zzz 飘散", 16)
+	var foot := _make_badge(_ui_font, "正面偏俯视正交相机 · 工位 01–25 · 25 个模拟昵称名牌 · 呼吸起伏 / 头部轻晃 / Zzz", 16)
 	foot.anchor_top = 1.0
 	foot.anchor_bottom = 1.0
 	foot.offset_left = 24
@@ -185,6 +216,117 @@ func _make_badge(font: Font, text: String, font_size: int) -> PanelContainer:
 	return panel
 
 
+# ---------- 观众昵称名牌（屏幕空间 CanvasLayer） ----------
+
+## 25 个昵称名牌：使用屏幕空间 Control 面板，每帧把工位头顶锚点投影成屏幕坐标。
+## 相比 3D Label3D，屏幕空间文字在 1920×1080 直播画面里始终是 19px 实际像素，
+## 不会因为距离 / 正交缩放而发虚；名牌宽度随相机推近自动放宽（局部特写可显示完整长昵称）。
+func _build_nickname_overlay() -> void:
+	_name_layer = CanvasLayer.new()
+	_name_layer.name = "NicknameLayer"
+	_name_layer.layer = 5
+	add_child(_name_layer)
+
+	for i in range(MOCK_NICKNAMES.size()):
+		var panel := PanelContainer.new()
+		panel.name = "Nickname%02d" % (i + 1)
+		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.custom_minimum_size = Vector2(0, NICKNAME_HEIGHT)
+
+		var style := StyleBoxFlat.new()
+		# 暖米色半透明底框（#E8D9C2 ≈ rgb(232,217,194)，透明度 68%），与办公室暖色木地板协调
+		style.bg_color = Color("#E8D9C2", 0.68)
+		# 浅木色边框（#B69A76 ≈ rgb(182,154,118)，透明度 35%），不喧宾夺主
+		style.border_color = Color("#B69A76", 0.35)
+		style.set_border_width_all(1)
+		style.corner_radius_top_left = 10
+		style.corner_radius_top_right = 10
+		style.corner_radius_bottom_left = 10
+		style.corner_radius_bottom_right = 10
+		style.content_margin_left = 9
+		style.content_margin_right = 9
+		style.content_margin_top = 3
+		style.content_margin_bottom = 3
+		panel.add_theme_stylebox_override("panel", style)
+
+		var label := Label.new()
+		label.text = MOCK_NICKNAMES[i]
+		label.add_theme_font_override("font", _ui_font)
+		label.add_theme_font_size_override("font_size", NICKNAME_FONT_SIZE)
+		# 暖棕色文字（#44382D），100% 不透明，保证在半透明底框上清晰可读
+		label.add_theme_color_override("font_color", Color("#44382D"))
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.clip_text = true
+		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(label)
+
+		_name_layer.add_child(panel)
+		_name_panels.append(panel)
+		_name_labels.append(label)
+
+		# 工位序号与 _build_workstations 一致：row * 5 + col（01–25 从左到右、从上到下）
+		var idx := i
+		var col := idx % GRID_X.size()
+		var row := int(idx / GRID_X.size())
+		_name_anchors.append(Vector3(GRID_X[col], 0.0, GRID_Z[row]) + NICKNAME_HEAD)
+
+	_name_layer.visible = false
+
+
+func _show_nicknames(on: bool) -> void:
+	if _name_layer == null:
+		return
+	_name_layer.visible = on
+	if on:
+		_update_nicknames()
+		await get_tree().process_frame
+		_update_nicknames()
+		await get_tree().process_frame
+
+
+func _update_nicknames() -> void:
+	if _name_layer == null or not _name_layer.visible or _camera == null:
+		return
+	var px_per_m := get_viewport().get_visible_rect().size.y / maxf(0.001, _camera.size)
+	# 相邻工位在屏幕上的横向间距（列距 2.60m），名牌宽度留 20px 安全间隙
+	var panel_w := clampf((GRID_X[1] - GRID_X[0]) * px_per_m - 20.0, 160.0, 300.0)
+	for i in range(_name_panels.size()):
+		var panel: PanelContainer = _name_panels[i]
+		var head_px := _camera.unproject_position(_name_anchors[i])
+		panel.size = Vector2(panel_w, NICKNAME_HEIGHT)
+		panel.position = Vector2(head_px.x - panel_w * 0.5, head_px.y - NICKNAME_GAP_PX - NICKNAME_HEIGHT)
+		panel.visible = true
+
+
+## 记录名牌布局自检结果：两两不重叠、与工位号牌不重叠。
+func _log_nickname_layout(tag: String) -> void:
+	if _name_panels.is_empty():
+		return
+	var overlaps := 0
+	var min_gap := INF
+	var min_gap_to_number := INF
+	var panel_size := Vector2.ZERO
+	for i in range(_name_panels.size()):
+		var p: PanelContainer = _name_panels[i]
+		panel_size = p.size
+		var rect_i := Rect2(p.position, p.size)
+		for j in range(i + 1, _name_panels.size()):
+			var q: PanelContainer = _name_panels[j]
+			var rect_j := Rect2(q.position, q.size)
+			if rect_i.intersects(rect_j):
+				overlaps += 1
+			if absf(rect_i.get_center().y - rect_j.get_center().y) < 6.0:
+				min_gap = minf(min_gap, absf(rect_i.get_center().x - rect_j.get_center().x) - (rect_i.size.x + rect_j.size.x) * 0.5)
+		# 工位号牌顶端中心 = 工位原点 + (0, 0.95, 0.40)，要求名牌底边始终高于号牌顶边
+		var number_px := _camera.unproject_position(_name_anchors[i] - NICKNAME_HEAD + Vector3(0.0, 0.95, 0.40))
+		min_gap_to_number = minf(min_gap_to_number, number_px.y - (rect_i.position.y + rect_i.size.y))
+	print("[3D-NAMES] %s panels=%d panel=%.0fx%.0f overlaps=%d min_h_gap=%.1fpx gap_to_number=%.1fpx" % [
+		tag, _name_panels.size(), panel_size.x, panel_size.y, overlaps, min_gap, min_gap_to_number,
+	])
+
+
 # ---------- 性能采样 ----------
 
 func _report_perf() -> void:
@@ -210,20 +352,40 @@ func _run_capture() -> void:
 	# 正式验收截图不叠加 HUD，保持画面干净
 	_hud.visible = false
 
+	# 1) 全景：25 个昵称名牌全部显示（阶段 1.5 第二轮验收主图）
 	_set_view(CAM_TARGET, CAM_SIZE)
-	await _save_shot(dir, "office_front_view.png")
+	await _show_nicknames(true)
+	await _save_shot(dir, "office_full.png")
+	_log_nickname_layout("full_view")
 
-	_set_view(Vector3(-9.55, 1.66, -5.70), 4.2)
+	# 2) 管理层区域同框：老板玻璃办公室在上、主管工位在正下方
+	await _show_nicknames(false)
+	_set_view(Vector3(-10.30, 1.00, -5.60), 5.2)
+	await _save_shot(dir, "management_area.png")
+
+	# 3) 老板玻璃办公室特写
+	_set_view(Vector3(-10.30, 1.70, -6.40), 4.4)
 	await _save_shot(dir, "boss_office.png")
 
-	_set_view(Vector3(-6.70, 0.56, -3.00), 3.4)
+	# 4) 主管工位特写（位于老板办公室正下方）
+	_set_view(Vector3(-10.30, 0.62, -3.20), 3.6)
 	await _save_shot(dir, "supervisor_station.png")
 
-	_set_view(Vector3(8.48, 1.30, -3.70), 7.6)
-	await _save_shot(dir, "meeting_room.png")
+	# 5) 会议室（书柜正面朝主摄像机）
+	_set_view(Vector3(9.55, 1.45, -3.90), 7.8)
+	await _save_shot(dir, "meeting_room_bookcase.png")
 
-	_set_view(Vector3(0.0, 0.68, -1.00), 6.6)
+	# 6) 25 工位与工位号（显示昵称）
+	_set_view(Vector3(0.0, 1.45, -0.05), 11.6)
+	await _show_nicknames(true)
 	await _save_shot(dir, "office_25_seats.png")
+	_log_nickname_layout("25_seats")
+
+	# 7) 昵称可读性特写：相机推近后名牌自动放宽，长昵称完整显示
+	_set_view(Vector3(0.0, 1.60, 0.20), 8.0)
+	await _show_nicknames(true)
+	await _save_shot(dir, "employee_nameplates.png")
+	_log_nickname_layout("nameplates_close")
 
 	get_tree().quit(0)
 
@@ -244,13 +406,15 @@ func _run_soak() -> void:
 	DisplayServer.window_set_position(Vector2i(0, 0))
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# 性能测试包含 25 个昵称名牌同时显示（直播画面的目标状态）
+	await _show_nicknames(true)
 	print("[3D-SOAK] start godot=%s renderer=%s adapter=%s api=%s" % [
 		Engine.get_version_info()["string"],
 		ProjectSettings.get_setting("rendering/renderer/rendering_method"),
 		RenderingServer.get_video_adapter_name(),
 		RenderingServer.get_video_adapter_api_version(),
 	])
-	print("[3D-SOAK] window=%s vsync=%d msaa=%s employees=25 grid=5x5 warmup=%.0fs soak=%.0fs" % [
+	print("[3D-SOAK] window=%s vsync=%d msaa=%s employees=25 grid=5x5 spacing=2.60/2.60 nicknames=25 warmup=%.0fs soak=%.0fs" % [
 		str(get_viewport().get_visible_rect().size),
 		DisplayServer.window_get_vsync_mode(),
 		"4x",

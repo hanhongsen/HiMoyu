@@ -1,9 +1,11 @@
 extends Node3D
-## 25 工位完整办公室场景 · 阶段 1.5 空间重规划。
+## 25 工位完整办公室场景 · 阶段 1.5 第二轮空间修正。
 ##
 ## 布局（从左到右）：
-##   左侧：玻璃老板办公室（独立玻璃盒 + 玻璃门）+ 主管工位
-##   中间：5×5 共 25 个普通员工工位（画面主体）
+##   左侧上方：玻璃老板办公室（独立玻璃盒 + 玻璃门）
+##   左侧下方：主管独立工位（与老板办公室沿 X 轴上下对齐）
+##   中间：5×5 共 25 个普通员工工位，列距 / 排距均拉开到 2.60m，
+##         为未来抖音昵称名牌预留视觉空间（画面主体）
 ##   右侧：横向扩大的玻璃会议室（长桌 / 八把椅子 / 白板 / 投影幕 / 书柜 / 文件柜）
 ##
 ## 三个区域共用同一块浅木地板、暖白墙面与后墙采光窗，靠通道自然连接。
@@ -12,27 +14,31 @@ extends Node3D
 
 const MeshKit := preload("res://scenes/prototype_3d/mesh_kit.gd")
 
-const ROOM_W := 22.4
+const ROOM_W := 24.4
 const ROOM_TOP := 3.6
-const WALL_Z := -8.2
-const FLOOR_CENTER_Z := -1.0
-const FLOOR_D := 14.4
+const WALL_Z := -8.7
+const FLOOR_CENTER_Z := -0.6
+const FLOOR_D := 16.2
 
-# 左：老板玻璃办公室
-const BOSS_X_MIN := -11.05
-const BOSS_X_MAX := -8.05
-const BOSS_Z_BACK := -7.90
-const BOSS_Z_FRONT := -4.60
+# 左：老板玻璃办公室（管理区上方）
+const BOSS_X_MIN := -11.80
+const BOSS_X_MAX := -8.80
+const BOSS_Z_BACK := -8.52
+const BOSS_Z_FRONT := -5.22
 const BOSS_GLASS_H := 2.55
+const BOSS_CENTER_X := -10.30
 
-# 中：25 工位
-const GRID_X := [-4.16, -2.08, 0.0, 2.08, 4.16]
-const GRID_Z := [-4.90, -2.95, -1.00, 0.95, 2.90]
+# 左：主管工位（老板办公室正下方，共用同一条 X 轴）
+const SUPERVISOR_X := -10.30
+
+# 中：25 工位（5×5，列距与排距统一为 2.60m）
+const GRID_X := [-5.20, -2.60, 0.0, 2.60, 5.20]
+const GRID_Z := [-5.30, -2.70, -0.10, 2.50, 5.10]
 
 # 右：玻璃会议室
-const MEET_X_MIN := 5.95
-const MEET_X_MAX := 11.00
-const MEET_Z_BACK := -8.08
+const MEET_X_MIN := 7.05
+const MEET_X_MAX := 12.05
+const MEET_Z_BACK := -8.52
 const MEET_Z_FRONT := 0.60
 const MEET_GLASS_H := 2.50
 
@@ -140,7 +146,7 @@ func _build_wall() -> void:
 	)
 
 	# 后墙采光窗集中在中央员工区；左侧老板室与右侧会议室各有自己的玻璃/白板
-	for x in [-6.9, -4.8, -2.4, 0.0, 2.4, 4.8]:
+	for x in [-6.9, -4.6, -2.3, 0.0, 2.3, 4.6]:
 		_build_window(x)
 
 
@@ -185,72 +191,74 @@ func _build_boss_office() -> void:
 	root.name = "BossOffice"
 	add_child(root)
 
+	var cx := BOSS_CENTER_X
 	var h := BOSS_GLASS_H
 	# 四面透明玻璃墙（背面紧贴后墙，左右与正面对镜头）
-	_glass_panel_z(root, (BOSS_X_MIN + BOSS_X_MAX) * 0.5, BOSS_Z_BACK, BOSS_X_MAX - BOSS_X_MIN, h)
+	_glass_panel_z(root, cx, BOSS_Z_BACK, BOSS_X_MAX - BOSS_X_MIN, h)
 	_glass_panel_x(root, BOSS_X_MIN + 0.02, (BOSS_Z_BACK + BOSS_Z_FRONT) * 0.5, BOSS_Z_FRONT - BOSS_Z_BACK, h)
 	_glass_panel_x(root, BOSS_X_MAX - 0.02, (BOSS_Z_BACK + BOSS_Z_FRONT) * 0.5, BOSS_Z_FRONT - BOSS_Z_BACK, h)
-	# 正面两段玻璃 + 中间 0.9m 玻璃门洞
-	_glass_panel_z(root, -10.39, BOSS_Z_FRONT, 1.28, h)
-	_glass_panel_z(root, -8.46, BOSS_Z_FRONT, 0.78, h)
+	# 正面两段等宽玻璃 + 中间 0.90m 玻璃门洞（门位于正中间）
+	_glass_panel_z(root, BOSS_X_MIN + 0.525, BOSS_Z_FRONT, 1.05, h)
+	_glass_panel_z(root, BOSS_X_MAX - 0.525, BOSS_Z_FRONT, 1.05, h)
 
 	# 玻璃门（向室内微开，明确入口位置）
 	var door := Node3D.new()
 	door.name = "GlassDoor"
-	door.position = Vector3(-9.75, 0, BOSS_Z_FRONT)
+	door.position = Vector3(cx, 0, BOSS_Z_FRONT)
 	door.rotation_degrees.y = 36.0
 	root.add_child(door)
 	_glass_panel_z(door, 0.43, 0.0, 0.86, h - 0.06)
 	MeshKit.lit(door, MeshKit.cylinder(0.015, 0.015, 0.24, 10), Vector3(0.80, 1.10, 0.055), _mat["metal"])
 
 	# 玻璃门上方的小标识
-	_add_sign(root, "BOSS OFFICE", Vector3(-9.30, 2.30, BOSS_Z_FRONT + 0.075), 64, 0.0030)
+	_add_sign(root, "BOSS OFFICE", Vector3(cx, 2.30, BOSS_Z_FRONT + 0.075), 64, 0.0030)
 
 	# 地毯 + 老板办公桌
+	var desk_z := -6.62
 	MeshKit.lit(
 		root,
 		MeshKit.rounded_box(Vector3(2.55, 0.008, 1.95), 0.35, 4, 12),
-		Vector3(-9.55, 0.006, -6.05),
+		Vector3(cx, 0.006, desk_z - 0.05),
 		_mat["rug_boss"]
 	)
 	var top := 0.76
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(2.00, 0.085, 1.00), 0.26, 14, 30), Vector3(-9.55, top - 0.0425, -6.00), _mat["boss_top"])
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(2.00, 0.085, 1.00), 0.26, 14, 30), Vector3(cx, top - 0.0425, desk_z), _mat["boss_top"])
 	# 前挡板与深色金属桌腿
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(1.92, 0.10, 0.045), 0.35), Vector3(-9.55, top - 0.115, -5.53), _mat["boss_dark"])
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(1.92, 0.10, 0.045), 0.35), Vector3(cx, top - 0.115, desk_z + 0.47), _mat["boss_dark"])
 	for xs in [-1.0, 1.0]:
-		MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.070, top - 0.08, 0.82), 0.25), Vector3(-9.55 + 0.86 * xs, (top - 0.08) * 0.5, -6.00), _mat["boss_dark"])
+		MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.070, top - 0.08, 0.82), 0.25), Vector3(cx + 0.86 * xs, (top - 0.08) * 0.5, desk_z), _mat["boss_dark"])
 
 	# 桌面：显示器 / 合上的笔记本 / 文件 / 咖啡 / 台灯
-	_build_small_monitor(root, Vector3(-9.20, top + 0.002, -6.18), 10.0)
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.36, 0.020, 0.25), 0.4), Vector3(-9.98, top + 0.012, -5.93), _mat["metal_dark"], Vector3(0, -8, 0))
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.32, 0.010, 0.22), 0.45), Vector3(-9.98, top + 0.027, -5.93), _mat["paper"], Vector3(0, -8, 0))
+	_build_small_monitor(root, Vector3(cx + 0.35, top + 0.002, desk_z - 0.18), 10.0)
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.36, 0.020, 0.25), 0.4), Vector3(cx - 0.43, top + 0.012, desk_z + 0.07), _mat["metal_dark"], Vector3(0, -8, 0))
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.32, 0.010, 0.22), 0.45), Vector3(cx - 0.43, top + 0.027, desk_z + 0.07), _mat["paper"], Vector3(0, -8, 0))
 	for i in range(3):
 		MeshKit.lit(
 			root,
 			MeshKit.rounded_box(Vector3(0.26, 0.014, 0.175), 0.5),
-			Vector3(-8.98, top + 0.009 + i * 0.015, -6.22),
+			Vector3(cx + 0.57, top + 0.009 + i * 0.015, desk_z - 0.22),
 			MeshKit.material([Color("#f4ecd9"), Color("#e8ddc8"), Color("#f4ecd9")][i], 0.9),
 			Vector3(0, 6 - i * 5, 0)
 		)
-	MeshKit.lit(root, MeshKit.cylinder(0.046, 0.042, 0.095, 18), Vector3(-8.92, top + 0.050, -5.80), MeshKit.material(Color("#f2e6d0"), 0.45))
-	MeshKit.lit(root, MeshKit.cylinder(0.020, 0.026, 0.30, 10), Vector3(-10.38, top + 0.15, -6.24), _mat["metal"], Vector3(0, 0, -18))
+	MeshKit.lit(root, MeshKit.cylinder(0.046, 0.042, 0.095, 18), Vector3(cx + 0.63, top + 0.050, desk_z + 0.20), MeshKit.material(Color("#f2e6d0"), 0.45))
+	MeshKit.lit(root, MeshKit.cylinder(0.020, 0.026, 0.30, 10), Vector3(cx - 0.83, top + 0.15, desk_z - 0.24), _mat["metal"], Vector3(0, 0, -18))
 	MeshKit.lit(
 		root,
 		MeshKit.cylinder(0.085, 0.055, 0.10, 14),
-		Vector3(-10.33, top + 0.30, -6.24),
+		Vector3(cx - 0.78, top + 0.30, desk_z - 0.24),
 		MeshKit.material(Color("#f7ead0"), 0.5, 0.0, Color("#ffe9b8"), 0.35),
 		Vector3(0, 0, -18)
 	)
 	# 桌面铭牌
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.34, 0.075, 0.022), 0.45), Vector3(-9.55, top + 0.045, -5.58), _mat["gold"])
-	_add_sign(root, "BOSS", Vector3(-9.55, top + 0.045, -5.565), 56, 0.0011)
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.34, 0.075, 0.022), 0.45), Vector3(cx, top + 0.045, desk_z + 0.42), _mat["gold"])
+	_add_sign(root, "BOSS", Vector3(cx, top + 0.045, desk_z + 0.435), 56, 0.0011)
 
 	# 老板椅（深色高背）
-	_build_manager_chair(root, Vector3(-9.55, 0, -6.55), 0.0, true)
+	_build_manager_chair(root, Vector3(cx, 0, desk_z - 0.55), 0.0, true)
 
 	# 后墙书柜 + 角落绿植
-	_build_bookshelf(root, Vector3(-9.30, 0, BOSS_Z_BACK + 0.22), 1.70, 2.10, 0.0)
-	_build_plant(root, Vector3(-10.62, 0, -7.28), 0.72)
+	_build_bookshelf(root, Vector3(cx + 0.25, 0, BOSS_Z_BACK + 0.22), 1.70, 2.10, 0.0)
+	_build_plant(root, Vector3(BOSS_X_MIN + 0.43, 0, -7.90), 0.72)
 
 
 # ---------- 左侧：主管工位 ----------
@@ -258,7 +266,9 @@ func _build_boss_office() -> void:
 func _build_supervisor_station() -> void:
 	var root := Node3D.new()
 	root.name = "SupervisorStation"
-	root.position = Vector3(-6.62, 0, -3.30)
+	# 与老板办公室共用同一条 X 轴：老板室在上方（-8.52..-5.22），主管工位在正下方
+	# 新位置 z=-3.10：与老板玻璃前墙（z=-5.22）间隔 2.12m，与第一排员工工位间隔 1.40m
+	root.position = Vector3(SUPERVISOR_X, 0, -3.10)
 	add_child(root)
 
 	var top := 0.75
@@ -294,8 +304,8 @@ func _build_supervisor_station() -> void:
 
 	# 主管椅（灰色高背）
 	_build_manager_chair(root, Vector3(0, 0, -0.62), 0.0, false)
-	# 旁边绿植（放在老板玻璃墙与主管桌之间的空隙，避免遮挡桌面）
-	_build_plant(self, Vector3(-7.85, 0, -1.55), 0.60)
+	# 旁边绿植（放在主管工位与员工区之间的通道里，避免遮挡桌面）
+	_build_plant(self, Vector3(-8.40, 0, -2.20), 0.60)
 
 
 # ---------- 右侧：玻璃会议室 ----------
@@ -305,51 +315,53 @@ func _build_meeting_room() -> void:
 	root.name = "MeetingRoom"
 	add_child(root)
 
+	var cx := (MEET_X_MIN + MEET_X_MAX) * 0.5   # 9.55
 	var h := MEET_GLASS_H
-	# 西侧玻璃隔断（与员工区隔开）+ 正面玻璃（留玻璃门洞）
+	# 西侧玻璃隔断（与员工区隔开）+ 正面玻璃（西侧留玻璃门洞）
 	_glass_panel_x(root, MEET_X_MIN + 0.02, (MEET_Z_BACK + MEET_Z_FRONT) * 0.5, MEET_Z_FRONT - MEET_Z_BACK, h)
-	_glass_panel_z(root, 6.33, MEET_Z_FRONT, 0.74, h)
-	_glass_panel_z(root, 9.30, MEET_Z_FRONT, 3.36, h)
+	_glass_panel_z(root, MEET_X_MIN + 0.40, MEET_Z_FRONT, 0.80, h)
+	_glass_panel_z(root, MEET_X_MAX - 1.65, MEET_Z_FRONT, 3.30, h)
 
 	var door := Node3D.new()
 	door.name = "MeetingDoor"
-	door.position = Vector3(7.60, 0, MEET_Z_FRONT)
+	door.position = Vector3(MEET_X_MIN + 1.25, 0, MEET_Z_FRONT)
 	door.rotation_degrees.y = 30.0
 	root.add_child(door)
 	_glass_panel_z(door, 0.43, 0.0, 0.86, h - 0.06)
 	MeshKit.lit(door, MeshKit.cylinder(0.015, 0.015, 0.24, 10), Vector3(0.80, 1.08, 0.055), _mat["metal"])
 
-	_add_sign(root, "MEETING ROOM", Vector3(8.30, 2.30, MEET_Z_FRONT + 0.075), 64, 0.0030)
+	_add_sign(root, "MEETING ROOM", Vector3(MEET_X_MIN + 1.25, 2.30, MEET_Z_FRONT + 0.075), 64, 0.0030)
 
 	# 会议室地毯
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(4.70, 0.008, 2.75), 0.35, 4, 12), Vector3(8.48, 0.006, -3.10), _mat["rug"])
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(4.90, 0.008, 2.90), 0.35, 4, 12), Vector3(cx, 0.006, -3.70), _mat["rug"])
 
 	# 会议长桌
 	var top := 0.75
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(3.40, 0.078, 1.15), 0.26, 14, 30), Vector3(8.48, top - 0.039, -3.10), _mat["mgr_wood"])
-	MeshKit.lit(root, MeshKit.rounded_box(Vector3(3.30, 0.075, 0.045), 0.35), Vector3(8.48, top - 0.108, -2.555), _mat["mgr_wood_dark"])
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(3.40, 0.078, 1.15), 0.26, 14, 30), Vector3(cx, top - 0.039, -3.70), _mat["mgr_wood"])
+	MeshKit.lit(root, MeshKit.rounded_box(Vector3(3.30, 0.075, 0.045), 0.35), Vector3(cx, top - 0.108, -3.155), _mat["mgr_wood_dark"])
 	for xs in [-1.0, 1.0]:
-		MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.10, top - 0.07, 0.90), 0.3), Vector3(8.48 + 1.45 * xs, (top - 0.07) * 0.5, -3.10), _mat["mgr_wood_dark"])
+		MeshKit.lit(root, MeshKit.rounded_box(Vector3(0.10, top - 0.07, 0.90), 0.3), Vector3(cx + 1.45 * xs, (top - 0.07) * 0.5, -3.70), _mat["mgr_wood_dark"])
 
 	# 八把会议椅：两侧三把 + 两端各一把
 	for i in range(3):
-		var x := 7.50 + i * 1.00
-		_build_meeting_chair(root, Vector3(x, 0, -4.00), 0.0)
-		_build_meeting_chair(root, Vector3(x, 0, -2.22), 180.0)
-	_build_meeting_chair(root, Vector3(6.45, 0, -3.10), 90.0)
-	_build_meeting_chair(root, Vector3(10.48, 0, -3.10), -90.0)
+		var x := 8.55 + i * 1.00
+		_build_meeting_chair(root, Vector3(x, 0, -4.62), 0.0)
+		_build_meeting_chair(root, Vector3(x, 0, -2.78), 180.0)
+	_build_meeting_chair(root, Vector3(7.55, 0, -3.70), 90.0)
+	_build_meeting_chair(root, Vector3(11.55, 0, -3.70), -90.0)
 
-	# 后墙白板 + 投影幕（贴墙安装，避免悬空）
-	_build_whiteboard(root, Vector3(7.42, 0, -8.04), 2.05, 1.28)
-	_build_projection_screen(root, Vector3(9.98, 0, -8.04), 1.70, 1.32)
+	# 后墙白板 + 投影幕（贴墙安装，避开背面玻璃）
+	_build_whiteboard(root, Vector3(8.25, 0, MEET_Z_BACK + 0.06), 2.05, 1.28)
+	_build_projection_screen(root, Vector3(10.55, 0, MEET_Z_BACK + 0.06), 1.70, 1.32)
 
-	# 东墙书柜 + 文件柜
-	_build_bookshelf(root, Vector3(10.80, 0, -6.35), 1.45, 2.00, -90.0)
-	_build_file_cabinet(root, Vector3(10.78, 0, -5.20))
+	# 书柜：改为独立摆放、正面（书脊一侧）朝向主摄像机（+Z），
+	# 放在会议室右侧靠后位置，不与后墙玻璃、会议桌椅及入口冲突。
+	_build_bookshelf(root, Vector3(11.30, 0, -6.60), 1.45, 2.00, 0.0)
+	_build_file_cabinet(root, Vector3(11.70, 0, -2.05))
 
 	# 会议室绿植
-	_build_plant(root, Vector3(6.38, 0, -0.55), 0.72)
-	_build_plant(root, Vector3(10.52, 0, -1.05), 0.64)
+	_build_plant(root, Vector3(7.40, 0, -0.55), 0.72)
+	_build_plant(root, Vector3(11.82, 0, -0.45), 0.64)
 
 
 # ---------- 玻璃构件 ----------
@@ -531,9 +543,10 @@ func _add_sign(parent: Node3D, text: String, pos: Vector3, font_size: int, pixel
 
 func _build_plants() -> void:
 	# 办公室四角与通道边的绿植，填满前后景但避开工位与家具
-	_build_plant(self, Vector3(-10.65, 0, 4.70), 0.92)
-	_build_plant(self, Vector3(10.45, 0, 4.70), 0.88)
-	_build_plant(self, Vector3(10.82, 0, 1.70), 0.72)
+	_build_plant(self, Vector3(-11.90, 0, 4.65), 0.92)
+	_build_plant(self, Vector3(11.90, 0, 4.65), 0.88)
+	_build_plant(self, Vector3(-10.55, 0, 1.35), 0.72)
+	_build_plant(self, Vector3(11.95, 0, 1.95), 0.72)
 
 
 func _build_plant(parent: Node3D, base: Vector3, plant_scale: float) -> void:
