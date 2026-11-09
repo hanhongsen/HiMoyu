@@ -1,18 +1,18 @@
 extends Node3D
-## 阶段 1.5 · 25 工位完整办公室预览（独立场景，不影响原 2D 主场景与 3 工位样板）。
+## 阶段 2A · 25 工位完整办公室（后端 WebSocket 快照驱动版）。
 ##
 ## 5×5 工位布局 + 左侧玻璃老板办公室 / 主管工位 + 右侧扩大玻璃会议室；
-## 25 名外观不同的员工（generate_appearance 1..25）全部循环趴桌睡觉。
-## 摄像机改为正面偏俯视正交视角，水平朝向与办公室轴线对齐（无水平旋转）。
-## 支持以下命令行参数（放在 -- 之后）：
-##   --capture            输出完整截图与各区域截图后退出
-##   --soak[=秒数]        连续运行压力测试（默认 300 秒），采样平均/最低 FPS、
-##                         帧时间、draw calls 与三角面，写出 CSV / TXT 并截图
+## 员工数据由 Python 后端 WebSocket 快照实时同步：
+##   - 有员工的工位：显示人物 + 对应昵称名牌
+##   - 空工位：隐藏人物 + 隐藏名牌（桌子/椅子/号牌保留）
+##
+## 摄像机正面偏俯视正交视角；命令行 --capture / --soak 保留。
 
 const RoomFull25 := preload("res://scenes/prototype_3d/room_full_25.gd")
 const Workstation3D := preload("res://scenes/prototype_3d/workstation_3d.gd")
 const Employee3D := preload("res://scenes/prototype_3d/employee_3d.gd")
 const MeshKit := preload("res://scenes/prototype_3d/mesh_kit.gd")
+const HimoyuWSClient := preload("res://net/ws_client.gd")
 
 # 5×5 工位网格：列距 / 排距均为 2.60（桌宽 1.90 + 0.70 横向净空），
 # 为每个工位预留约 200px 的昵称名牌空间（1920 宽屏、正交尺寸 14.1 时）。
@@ -60,6 +60,10 @@ var _name_labels: Array = []
 var _name_anchors: Array = []
 
 var _capture := false
+var _ws_client: HimoyuWSClient
+var _stations: Array = []  # 25 个 Workstation3D，按 seat_index 排序（索引 i → seat_index i+1）
+var _mock_mode: bool = true  # true = capture 模式（25 员工全显 + MOCK_NICKNAMES）；false = WebSocket 快照驱动
+
 var _perf_warm := 0
 var _perf_frames := 0
 var _perf_time := 0.0
@@ -101,6 +105,28 @@ func _ready() -> void:
 	_build_hud()
 	_apply_camera()
 	_build_nickname_overlay()
+
+	# 收集 25 个工位子节点，按 seat_index 排序
+	for child in get_children():
+		if child.name.begins_with("Workstation") and child is Node3D:
+			_stations.append(child)
+	_stations.sort_custom(func(a, b): return a.seat_index < b.seat_index)
+
+	if _capture:
+		# capture 模式：25 员工全显示，昵称用 MOCK_NICKNAMES
+		_mock_mode = true
+	else:
+		# 正常运行：WebSocket 快照驱动，初始隐藏所有员工和名牌
+		_mock_mode = false
+		for station in _stations:
+			station.employee.visible = false
+		for panel in _name_panels:
+			panel.visible = false
+		_name_layer.visible = true  # 层保持可见，由子面板单独控制
+		_ws_client = HimoyuWSClient.new()
+		add_child(_ws_client)
+		_ws_client.snapshot_received.connect(_apply_snapshot)
+		print("[HiMoyu-WS] 已连接 WebSocket 客户端，等待快照…")
 
 	if _soak:
 		_run_soak.call_deferred()
@@ -170,7 +196,7 @@ func _build_hud() -> void:
 		"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
 	])
 
-	var title := _make_badge(_ui_font, "HiMoyu · 轻 3D 办公室（阶段 1.5 · 第二轮布局修正）\n25 工位 · 老板室在上 / 主管工位在下 · 工位间距 2.60m · 昵称名牌预留", 20)
+	var title := _make_badge(_ui_font, "HiMoyu · 轻 3D 办公室（阶段 2A · WebSocket 快照驱动）\n25 工位 · 老板室在上 / 主管工位在下 · 工位间距 2.60m", 20)
 	title.position = Vector2(24, 20)
 	_hud.add_child(title)
 
@@ -298,7 +324,34 @@ func _update_nicknames() -> void:
 		var head_px := _camera.unproject_position(_name_anchors[i])
 		panel.size = Vector2(panel_w, NICKNAME_HEIGHT)
 		panel.position = Vector2(head_px.x - panel_w * 0.5, head_px.y - NICKNAME_GAP_PX - NICKNAME_HEIGHT)
-		panel.visible = true
+		if _mock_mode:
+			panel.visible = true
+
+
+## WebSocket 快照驱动：根据后端发来的 seats 数组控制 25 工位的员工和名牌可见性。
+## 空工位保留桌子/椅子/显示器/工位号牌，只隐藏人物节点和昵称名牌。
+func _apply_snapshot(snapshot: Dictionary) -> void:
+	if snapshot.get("type") != "snapshot":
+		return
+	if _mock_mode:
+		return
+	var seats: Array = snapshot.get("seats", [])
+	var occupied: Dictionary = {}  # seat_index -> nickname
+	for seat in seats:
+		if seat.get("employee_id"):
+			occupied[seat["index"]] = seat.get("nickname", "员工")
+	for i in range(25):
+		var station: Node3D = _stations[i]
+		var seat_idx := i + 1
+		var has_emp := occupied.has(seat_idx)
+		station.employee.visible = has_emp
+		var panel: PanelContainer = _name_panels[i]
+		panel.visible = has_emp
+		if has_emp:
+			_name_labels[i].text = occupied[seat_idx]
+	print("[HiMoyu-SNAP] version=%d occupied=%d" % [
+		snapshot.get("version", 0), occupied.size()
+	])
 
 
 ## 记录名牌布局自检结果：两两不重叠、与工位号牌不重叠。

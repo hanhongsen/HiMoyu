@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -29,7 +29,7 @@ class MockEvent:
         }
 
 
-def build_mock_event(
+def make_event(
     *,
     kind: str,
     user_id: str,
@@ -39,6 +39,26 @@ def build_mock_event(
 ) -> MockEvent:
     return MockEvent(
         event_id=uuid4().hex[:10],
+        kind=kind,
+        user_id=user_id,
+        nickname=nickname,
+        text=text,
+        gift_id=gift_id,
+        received_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+
+
+def build_mock_event(
+    *,
+    kind: str,
+    user_id: str,
+    nickname: str,
+    text: str | None = None,
+    gift_id: str | None = None,
+    event_id: str | None = None,  # 阶段 2A 新增：支持调用方指定 event_id（幂等）
+) -> MockEvent:
+    return MockEvent(
+        event_id=event_id or uuid4().hex[:10],
         kind=kind,
         user_id=user_id,
         nickname=nickname,
