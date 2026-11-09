@@ -234,10 +234,11 @@ func _build_nickname_overlay() -> void:
 		panel.custom_minimum_size = Vector2(0, NICKNAME_HEIGHT)
 
 		var style := StyleBoxFlat.new()
-		# 暖米色半透明底框（#E8D9C2 ≈ rgb(232,217,194)，透明度 68%），与办公室暖色木地板协调
-		style.bg_color = Color("#E8D9C2", 0.68)
-		# 浅木色边框（#B69A76 ≈ rgb(182,154,118)，透明度 35%），不喧宾夺主
-		style.border_color = Color("#B69A76", 0.35)
+		# 暖木色半透明底框（#C9A77D ≈ rgb(201,167,125)，透明度 58%），
+		# 明显区别于纯白色，与办公室木地板形成暖色系列呼应
+		style.bg_color = Color("#C9A77D", 0.58)
+		# 深木色边框（#9A7955 ≈ rgb(154,121,85)，透明度 55%），更清晰的边框轮廓
+		style.border_color = Color("#9A7955", 0.55)
 		style.set_border_width_all(1)
 		style.corner_radius_top_left = 10
 		style.corner_radius_top_right = 10
@@ -358,17 +359,17 @@ func _run_capture() -> void:
 	await _save_shot(dir, "office_full.png")
 	_log_nickname_layout("full_view")
 
-	# 2) 管理层区域同框：老板玻璃办公室在上、主管工位在正下方
+	# 2) 管理层区域同框：左上老板玻璃办公室 + 左下主管独立工位（两者已分离）
 	await _show_nicknames(false)
-	_set_view(Vector3(-10.30, 1.00, -5.60), 5.2)
+	_set_view(Vector3(-10.30, 1.20, -1.20), 12.0)
 	await _save_shot(dir, "management_area.png")
 
 	# 3) 老板玻璃办公室特写
 	_set_view(Vector3(-10.30, 1.70, -6.40), 4.4)
 	await _save_shot(dir, "boss_office.png")
 
-	# 4) 主管工位特写（位于老板办公室正下方）
-	_set_view(Vector3(-10.30, 0.62, -3.20), 3.6)
+	# 4) 主管工位特写（独立于老板办公室，位于画面左下区域）
+	_set_view(Vector3(-10.30, 0.62, 4.50), 4.2)
 	await _save_shot(dir, "supervisor_station.png")
 
 	# 5) 会议室（书柜正面朝主摄像机）

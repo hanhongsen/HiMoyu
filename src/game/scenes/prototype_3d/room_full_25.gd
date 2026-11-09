@@ -266,9 +266,11 @@ func _build_boss_office() -> void:
 func _build_supervisor_station() -> void:
 	var root := Node3D.new()
 	root.name = "SupervisorStation"
-	# 与老板办公室共用同一条 X 轴：老板室在上方（-8.52..-5.22），主管工位在正下方
-	# 新位置 z=-3.10：与老板玻璃前墙（z=-5.22）间隔 2.12m，与第一排员工工位间隔 1.40m
-	root.position = Vector3(SUPERVISOR_X, 0, -3.10)
+	# 阶段 1.5 最终布局：主管工位独立放置在画面左下角（负 X + 正 Z），
+	# 与左上角的老板玻璃办公室（x∈[-11.8..-8.8], z∈[-8.52..-5.22]）形成明显的上下分离。
+	# x=-10.30 继续靠左；z=4.50 靠近镜头 → 画面左下区域。
+	# 与最后一排员工（z=5.90）间隔约 0.60m，独立空间清晰。
+	root.position = Vector3(SUPERVISOR_X, 0, 4.50)
 	add_child(root)
 
 	var top := 0.75
@@ -304,8 +306,9 @@ func _build_supervisor_station() -> void:
 
 	# 主管椅（灰色高背）
 	_build_manager_chair(root, Vector3(0, 0, -0.62), 0.0, false)
-	# 旁边绿植（放在主管工位与员工区之间的通道里，避免遮挡桌面）
-	_build_plant(self, Vector3(-8.40, 0, -2.20), 0.60)
+
+	# 旁边绿植（放在主管工位右前方通道里，不遮挡桌面；z 跟随新主管位置）
+	_build_plant(self, Vector3(-8.40, 0, 5.30), 0.60)
 
 
 # ---------- 右侧：玻璃会议室 ----------
@@ -543,7 +546,8 @@ func _add_sign(parent: Node3D, text: String, pos: Vector3, font_size: int, pixel
 
 func _build_plants() -> void:
 	# 办公室四角与通道边的绿植，填满前后景但避开工位与家具
-	_build_plant(self, Vector3(-11.90, 0, 4.65), 0.92)
+	# 左下角落原绿植（z=4.65）让位给新主管工位，移至左上角落老板办公室前方
+	_build_plant(self, Vector3(-11.90, 0, -4.50), 0.92)
 	_build_plant(self, Vector3(11.90, 0, 4.65), 0.88)
 	_build_plant(self, Vector3(-10.55, 0, 1.35), 0.72)
 	_build_plant(self, Vector3(11.95, 0, 1.95), 0.72)
