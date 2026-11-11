@@ -219,10 +219,7 @@ func reset_to_sleep() -> void:
 	_action_tween = null
 	_is_transitioning = false
 	_clear_props()
-	for item in _zzz_items:
-		var node: Label3D = item["node"]
-		node.queue_free()
-	_zzz_items.clear()
+	_clear_zzz()
 	action_state = Action.SLEEP
 	_pose_head = POSE_HEAD[Action.SLEEP]
 	_arm_base_l = Quaternion.IDENTITY
@@ -242,6 +239,10 @@ func _start_transition(target: int) -> void:
 		_action_tween.kill()
 	# 先清理旧道具（如 Phone -> Snack 时移除手机），到位后再生成新道具
 	_clear_props()
+	# 从 Sleep 切到非 Sleep：立即清除现存 Zzz；切回 Sleep 时保留，
+	# 过渡完成后 _finish_transition 会让 _zzz_timer 正常工作恢复生成
+	if target != Action.SLEEP:
+		_clear_zzz()
 	var lean := float(POSE_LEAN[target])
 	var head_rot: Vector3 = POSE_HEAD[target]
 	var group_pos := _arm_group_pos_for(lean)
@@ -835,6 +836,10 @@ func _build_cap(head: Node3D) -> void:
 # ---------- Zzz ----------
 
 func _spawn_zzz() -> void:
+	# 过渡期间禁止生成 Zzz：action_state 已经写入但姿势尚未到位，
+	# 要等 Tween 完成（_finish_transition 清 _is_transitioning）再恢复。
+	if action_state != Action.SLEEP or _is_transitioning:
+		return
 	if _zzz_items.size() >= 3:
 		return
 	var label := Label3D.new()
@@ -863,7 +868,20 @@ func _spawn_zzz() -> void:
 	})
 
 
+## 清空全部现存 Zzz 节点（动作切换离场、reset_to_sleep 共用）
+func _clear_zzz() -> void:
+	for item in _zzz_items:
+		var node: Label3D = item["node"]
+		node.queue_free()
+	_zzz_items.clear()
+
+
 func _update_zzz(delta: float) -> void:
+	# 非 Sleep 状态不更新、不显示任何 Zzz；
+	# 动作过渡期间同样暂停：action_state 已写入但姿势尚未到位，
+	# Zzz 计时要等 _is_transitioning 在 _finish_transition 被清零后才恢复。
+	if action_state != Action.SLEEP or _is_transitioning:
+		return
 	var survivors := []
 	for item in _zzz_items:
 		var node: Label3D = item["node"]

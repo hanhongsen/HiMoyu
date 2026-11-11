@@ -6,9 +6,11 @@
 
 **阶段 2B-2 · Godot 员工动作动画系统（已完成、已验收、已提交推送）**
 
-- 最新 Git 提交：`bd53b03`（2026-11-11 · feat: implement employee action animations in Godot，已推送 origin/main）
+- 最新 Git 提交：`37a98fa`（2026-11-11 · docs: finalize phase 2B-2 development status，已推送 origin/main）
+- 阶段 2B-2 功能提交：`bd53b03`（feat: implement employee action animations in Godot）
 - 阶段 2B-2 十场景验收全部通过，pytest 70/70 零回归，25 人同屏 Avg FPS 79+
 - 阶段 2B-1（含修复轮，commit `fdf33ab`）已全部提交推送
+- Zzz 显示条件修复：动作切换离场立即清空、非 Sleep 状态或过渡中均不生成/不更新、过渡完成后 timer 从冻结值恢复倒计时（`_is_transitioning` 纳入 guard）
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
