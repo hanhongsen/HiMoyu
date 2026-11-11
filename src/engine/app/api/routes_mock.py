@@ -97,32 +97,33 @@ def _apply_gift_action_if_any(state, payload: MockEventIn) -> dict | None:
 
 @router.post("/event")
 async def post_mock_event(payload: MockEventIn) -> dict:
-    state = get_state()
-
-    # 事件计数：like 按 repeat 次累计，comment/gift 固定 1 次
-    count = payload.repeat if payload.kind == "like" else 1
-    state.record_event(
-        build_mock_event(
-            kind=payload.kind,
-            user_id=payload.user_id,
-            nickname=payload.nickname,
-            text=payload.text,
-            gift_id=payload.gift_id,
-            event_id=payload.event_id,
-        ).to_dict(),
-        count=count,
-    )
-
-    # 幂等检查
-    if payload.event_id:
-        if payload.event_id in state._seen_events:
-            snapshot = build_snapshot(state)
-            return {"ok": True, "idempotent": True, "event_id": payload.event_id, "snapshot": snapshot}
-
-    # 批量事件：like 按 repeat 数累计，comment/gift 只判一次
     method_results: list[dict] = []
 
     async with state_lock:
+        state = get_state()
+
+        # 幂等检查：相同 event_id 的第二次请求直接返回，不执行任何业务。
+        # 必须在 record_event 之前判断（record_event 会把 event_id 写入 _seen_events）。
+        if payload.event_id and payload.event_id in state._seen_events:
+            snapshot = build_snapshot(state)
+            return {"ok": True, "idempotent": True, "event_id": payload.event_id, "snapshot": snapshot}
+
+        # 第一次请求：正常执行业务。
+        # 事件计数：like 按 repeat 次累计，comment/gift 固定 1 次。
+        # record_event 内部会把 event_id 记入 _seen_events（供下次幂等判断）。
+        count = payload.repeat if payload.kind == "like" else 1
+        state.record_event(
+            build_mock_event(
+                kind=payload.kind,
+                user_id=payload.user_id,
+                nickname=payload.nickname,
+                text=payload.text,
+                gift_id=payload.gift_id,
+                event_id=payload.event_id,
+            ).to_dict(),
+            count=count,
+        )
+
         entry_result, enter_result = dispatch_entry(
             state=state,
             event_kind=payload.kind,
@@ -140,15 +141,12 @@ async def post_mock_event(payload: MockEventIn) -> dict:
         if action_result:
             method_results.append({"action_result": action_result})
 
-        # 去重：记录 event_id
-        if payload.event_id:
-            state._seen_events.add(payload.event_id)
-
         snapshot = build_snapshot(state)
         await hub.broadcast(snapshot)
 
     return {
         "ok": True,
+        "idempotent": False,
         "applied_count": 1,
         "entry_results": method_results,
         "event": {
@@ -180,9 +178,8 @@ async def leave_employee(payload: dict) -> dict:
     if seat_index < 1 or seat_index > config.SEAT_COUNT:
         raise HTTPException(status_code=400, detail=f"seat_index must be 1-{config.SEAT_COUNT}")
 
-    state = get_state()
-
     async with state_lock:
+        state = get_state()
         result = state.leave_employee_by_seat(seat_index)
 
         if result.get("left") is None:
@@ -205,14 +202,13 @@ async def leave_employee(payload: dict) -> dict:
 @router.post("/action")
 async def post_action(payload: ActionCommandIn) -> dict:
     """手动为指定工位的员工设置动作状态。"""
-    state = get_state()
-
-    seat = state.seats[payload.seat_index - 1]
-    if seat.employee_id is None:
-        snapshot = build_snapshot(state)
-        return {"ok": False, "detail": f"工位 {payload.seat_index} 当前空闲", "snapshot": snapshot}
-
     async with state_lock:
+        state = get_state()
+        seat = state.seats[payload.seat_index - 1]
+        if seat.employee_id is None:
+            snapshot = build_snapshot(state)
+            return {"ok": False, "detail": f"工位 {payload.seat_index} 当前空闲", "snapshot": snapshot}
+
         result = state.apply_action(
             employee_id=seat.employee_id,
             action=payload.action,

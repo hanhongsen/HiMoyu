@@ -760,3 +760,95 @@ class TestActionAPI:
             "event_id": "evt_dedup",
         })
         assert res.json().get("idempotent") is True
+
+
+class TestEventIdSemantics:
+    """幂等语义修复：第一次请求必须执行完整业务，第二次才返回 idempotent=True。"""
+
+    def test_first_request_with_event_id_executes_entry(self, client):
+        # 第一次带 event_id 的评论事件：必须正常入职
+        r1 = client.post("/api/mock/event", json={
+            "kind": "comment", "user_id": "u1", "nickname": "A", "text": "入职",
+            "event_id": "evt_first_1",
+        })
+        d1 = r1.json()
+        assert d1["ok"] is True
+        assert d1["idempotent"] is False                       # 第一次不是幂等命中
+        assert d1["snapshot"]["session"]["occupied_seats"] == 1  # 入职确实执行了
+        assert len(d1["snapshot"]["employees"]) == 1
+        assert d1["entry_results"]                              # 有入职结果
+
+    def test_second_request_same_event_id_idempotent(self, client):
+        # 第一次：u1 入职
+        r1 = client.post("/api/mock/event", json={
+            "kind": "comment", "user_id": "u1", "nickname": "A", "text": "入职",
+            "event_id": "evt_first_2",
+        })
+        assert r1.json()["idempotent"] is False
+        # 第二次（相同 event_id，不同用户）：幂等命中，不再入职
+        r2 = client.post("/api/mock/event", json={
+            "kind": "comment", "user_id": "u2", "nickname": "B", "text": "入职",
+            "event_id": "evt_first_2",
+        })
+        d2 = r2.json()
+        assert d2["idempotent"] is True
+        assert d2["ok"] is True
+        assert d2["snapshot"]["session"]["occupied_seats"] == 1  # 仍是 1 人，u2 没有入职
+        assert len(d2["snapshot"]["employees"]) == 1
+        # 事件计数也没有被重复累计
+        assert d2["snapshot"]["session"]["event_counts"]["comment"] == 1
+
+    def test_first_gift_request_with_event_id_executes_action(self, client):
+        # donor 先入职
+        client.post("/api/mock/event", json={
+            "kind": "comment", "user_id": "u1", "nickname": "A", "text": "入职",
+        })
+        # 第一次带 event_id 的 gift_phone：动作必须生效
+        r1 = client.post("/api/mock/event", json={
+            "kind": "gift", "user_id": "u1", "nickname": "A",
+            "gift_id": "gift_phone", "event_id": "evt_gift_1",
+        })
+        d1 = r1.json()
+        assert d1["idempotent"] is False
+        assert d1["snapshot"]["seats"][0]["action"] == "phone"   # 动作已触发
+        # 第二次相同 event_id：幂等命中，无新业务
+        r2 = client.post("/api/mock/event", json={
+            "kind": "gift", "user_id": "u1", "nickname": "A",
+            "gift_id": "gift_snack", "event_id": "evt_gift_1",
+        })
+        d2 = r2.json()
+        assert d2["idempotent"] is True
+        # 动作没有被第二次请求覆盖（仍是 phone 而不是 snack）
+        assert d2["snapshot"]["seats"][0]["action"] == "phone"
+
+
+class TestActionTimestampPrecision:
+    """动作时间戳微秒精度修复。"""
+
+    def test_action_timestamps_have_microseconds(self):
+        state = OfficeState.new()
+        onboarding.dispatch_entry(state=state, event_kind="comment",
+                                  user_id="u1", nickname="A", text="入职")
+        emp_id = list(state.employees.keys())[0]
+        state.apply_action(emp_id, "phone", duration_s=1.5)
+        emp = state.employees[emp_id]
+        # isoformat(timespec="microseconds") 一定包含 "." + 6 位小数
+        assert "." in emp.action_started_at
+        assert "." in emp.action_until
+        started = datetime.fromisoformat(emp.action_started_at)
+        until = datetime.fromisoformat(emp.action_until)
+        # 实际持续时间精确等于请求值（秒级截断会丢失最多 1 秒）
+        duration = (until - started).total_seconds()
+        assert 1.4 <= duration <= 1.5
+
+    def test_remaining_s_not_truncated_by_api(self, client):
+        client.post("/api/mock/event", json={
+            "kind": "comment", "user_id": "u1", "nickname": "A", "text": "入职",
+        })
+        res = client.post("/api/mock/action", json={
+            "seat_index": 1, "action": "phone", "duration_s": 1.5,
+        })
+        seat = res.json()["snapshot"]["seats"][0]
+        # 剩余时间应接近 1.5s；秒级截断会把它砍到最低 ~0.5s
+        assert seat["action_remaining_s"] is not None
+        assert seat["action_remaining_s"] > 1.0

@@ -4,9 +4,10 @@
 
 ## 当前阶段
 
-**阶段 2B-1 · 员工动作状态后端系统（已完成并验收）**
+**阶段 2B-1 · 员工动作状态后端系统（已完成并验收，含 2026-11-11 修复轮）**
 
-- 最新 Git 提交：`待提交`（2026-11-10 · 工作树干净但未提交）
+- 最新 Git 提交：`f2c7713`（2026-11-11 · feat: implement employee action backend system，已推送 origin/main）
+- 待提交修复（2026-11-11，等待审查）：event_id 幂等顺序、动作时间戳微秒精度、state_lock 锁内取 state、文档同步
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
@@ -40,6 +41,7 @@
 | 23 | **后台过期检查（阶段 2B-1）** | `src/engine/app/main.py::lifespan` + `runtime.py::state_lock` | 2026-11-10 | FastAPI lifespan 启动 asyncio.Task `_expire_loop()`（0.5s 间隔），仅在有变化时广播；`asyncio.Lock` 保护 state 修改+broadcast 原子性 |
 | 24 | **礼物→动作映射（阶段 2B-1）** | `src/engine/app/api/routes_mock.py::_apply_gift_action_if_any` | 2026-11-10 | gift_phone→phone / gift_snack→snack / gift_file→work；支持 `seat_index` 指定目标工位 |
 | 25 | **手动动作接口（阶段 2B-1）** | `POST /api/mock/action` | 2026-11-10 | seat_index(1-25) + action(sleep/phone/snack/work)；空工位返回 ok=False |
+| 26 | **2B-1 修复轮** | `routes_mock.py` / `models.py` / `tests` / 文档 | 2026-11-11 | ① event_id 幂等顺序修复：首次请求正确执行入职/礼物动作，第二次才返回 idempotent=true；② action_started_at/action_until 改微秒精度，避免动作提前最多 1 秒过期；③ event/action/leave/reset 四端点统一"先取锁、锁内取 state、锁内完成读取-修改-快照-广播"；④ README/DEVELOPMENT_STATUS 同步 |
 
 ## 关键文件清单（只读/保护）
 
@@ -115,9 +117,10 @@ pytest：**28/28 通过**（1.08s），包括原有 9 项 + 阶段 2A 新增 19 
 
 ## pytest 结果
 
-阶段 2B-1：**65/65 通过**（2.20s）
+阶段 2B-1 + 修复轮：**70/70 通过**
 - 原有阶段 2A 28 个测试全部通过（零回归）
 - 新增 37 个动作系统测试（TestActionModel 12 + TestActionExpiry 7 + TestSnapshotProtocolV3 7 + TestActionAPI 11）
+- 2026-11-11 修复轮新增 5 个测试（TestEventIdSemantics 3：幂等首次执行 / 二次拦截 / 礼物动作首次生效；TestActionTimestampPrecision 2：微秒精度 + 剩余时间不截断）
 
 ## 运行命令速查
 

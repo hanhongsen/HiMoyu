@@ -351,11 +351,12 @@ class OfficeState:
                     duration_s = d
 
             emp.action = action
-            emp.action_started_at = now.isoformat(timespec="seconds")
+            # 微秒精度：秒级截断会让 action_until 提前最多约 1 秒到期
+            emp.action_started_at = now.isoformat(timespec="microseconds")
             if duration_s is None or duration_s <= 0:
                 emp.action_until = None
             else:
-                emp.action_until = (now + timedelta(seconds=duration_s)).isoformat(timespec="seconds")
+                emp.action_until = (now + timedelta(seconds=duration_s)).isoformat(timespec="microseconds")
             emp.action_source = source
 
         # 同步 SeatState 冗余快照
