@@ -6,8 +6,8 @@
 
 **阶段 2B-1 · 员工动作状态后端系统（已完成并验收，含 2026-11-11 修复轮）**
 
-- 最新 Git 提交：`f2c7713`（2026-11-11 · feat: implement employee action backend system，已推送 origin/main）
-- 待提交修复（2026-11-11，等待审查）：event_id 幂等顺序、动作时间戳微秒精度、state_lock 锁内取 state、文档同步
+- 最新 Git 提交：`fdf33ab`（2026-11-11 · fix: correct event idempotency and action state locking，已推送 origin/main）
+- 阶段 2B-1 及修复轮（event_id 幂等顺序、动作时间戳微秒精度、state_lock 锁内取 state、文档同步）已全部提交推送，pytest 70/70 通过
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
