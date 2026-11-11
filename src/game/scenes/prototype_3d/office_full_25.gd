@@ -47,6 +47,14 @@ const MOCK_NICKNAMES := [
 	"键盘侠小刘", "周一的怨念", "摸鱼中请勿打扰", "下班倒计时", "明天再说吧",
 ]
 
+# 阶段 2B-2：后端协议 v3 seats[].action 字符串 -> 员工动作枚举
+const ACTION_MAP := {
+	"sleep": Employee3D.Action.SLEEP,
+	"phone": Employee3D.Action.PHONE,
+	"snack": Employee3D.Action.SNACK,
+	"work": Employee3D.Action.WORK,
+}
+
 var _camera: Camera3D
 var _hud: CanvasLayer
 var _perf_panel: PanelContainer
@@ -63,6 +71,11 @@ var _capture := false
 var _ws_client: HimoyuWSClient
 var _stations: Array = []  # 25 个 Workstation3D，按 seat_index 排序（索引 i → seat_index i+1）
 var _mock_mode: bool = true  # true = capture 模式（25 员工全显 + MOCK_NICKNAMES）；false = WebSocket 快照驱动
+
+# ---- 阶段 2B-2 验收：WebSocket 模式定时截图 ----
+var _shot_jobs: Array = []  # --shot=秒:文件名（可重复传入多张）
+var _shot_view: Vector3 = Vector3.ZERO
+var _shot_view_size := 0.0  # --view=x,y,z,size（可选取景，0 = 默认全景相机）
 
 var _perf_warm := 0
 var _perf_frames := 0
@@ -97,6 +110,17 @@ func _ready() -> void:
 			var parts := String(a).split("=")
 			if parts.size() > 1:
 				_soak_seconds = maxf(30.0, float(parts[1]))
+		elif String(a).begins_with("--shot="):
+			# 阶段 2B-2 验收用：--shot=秒:文件名（可重复传入多张）
+			var parts := String(a).substr(7).split(":")
+			if parts.size() == 2:
+				_shot_jobs.append({"wait": float(parts[0]), "fname": parts[1]})
+		elif String(a).begins_with("--view="):
+			# 阶段 2B-2 验收用：--view=x,y,z,size 指定截图取景（特写用）
+			var parts := String(a).substr(7).split(",")
+			if parts.size() == 4:
+				_shot_view = Vector3(float(parts[0]), float(parts[1]), float(parts[2]))
+				_shot_view_size = float(parts[3])
 	_build_room()
 	_build_workstations()
 	# 房间与 25 套工位家具建完后，统一合并静态网格（员工动画组会被跳过）
@@ -132,6 +156,8 @@ func _ready() -> void:
 		_run_soak.call_deferred()
 	elif _capture:
 		_run_capture.call_deferred()
+	if not _shot_jobs.is_empty():
+		_run_ws_shots.call_deferred()
 
 
 func _process(delta: float) -> void:
@@ -196,7 +222,7 @@ func _build_hud() -> void:
 		"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
 	])
 
-	var title := _make_badge(_ui_font, "HiMoyu · 轻 3D 办公室（阶段 2A · WebSocket 快照驱动）\n25 工位 · 老板室在上 / 主管工位在下 · 工位间距 2.60m", 20)
+	var title := _make_badge(_ui_font, "HiMoyu · 轻 3D 办公室（阶段 2B · WebSocket 快照驱动 · 四动作动画）\n25 工位 · 老板室在上 / 主管工位在下 · 工位间距 2.60m", 20)
 	title.position = Vector2(24, 20)
 	_hud.add_child(title)
 
@@ -210,7 +236,7 @@ func _build_hud() -> void:
 	_hud.add_child(_perf_panel)
 	_perf_label = _perf_panel.get_child(0)
 
-	var foot := _make_badge(_ui_font, "正面偏俯视正交相机 · 工位 01–25 · 25 个模拟昵称名牌 · 呼吸起伏 / 头部轻晃 / Zzz", 16)
+	var foot := _make_badge(_ui_font, "正面偏俯视正交相机 · 工位 01–25 · 25 个模拟昵称名牌 · Sleep / Phone / Snack / Work 四种动作", 16)
 	foot.anchor_top = 1.0
 	foot.anchor_bottom = 1.0
 	foot.offset_left = 24
@@ -328,30 +354,101 @@ func _update_nicknames() -> void:
 			panel.visible = true
 
 
-## WebSocket 快照驱动：根据后端发来的 seats 数组控制 25 工位的员工和名牌可见性。
-## 空工位保留桌子/椅子/显示器/工位号牌，只隐藏人物节点和昵称名牌。
+## WebSocket 快照驱动（协议 v3）：根据后端 seats 数组控制 25 工位的
+## 员工可见性、昵称名牌与动作动画。
+##   - 有员工的工位：显示人物 + 名牌，按 seats[].action 驱动四种动作
+##   - 空工位：隐藏人物 + 名牌（桌子/椅子/号牌保留）
+##   - 新入职：reset_to_sleep 从默认睡姿开始，不继承上一位员工的动作与道具
+##   - 离职：隐藏并清理全部临时道具
+## action_remaining_s 仅作展示信息，动作过期恢复由后端广播驱动。
 func _apply_snapshot(snapshot: Dictionary) -> void:
 	if snapshot.get("type") != "snapshot":
 		return
 	if _mock_mode:
 		return
 	var seats: Array = snapshot.get("seats", [])
-	var occupied: Dictionary = {}  # seat_index -> nickname
+	var seat_info := {}  # seat_index -> {"nickname": str, "action": int}
+	# 注意：JSON.parse_string 把数字统一解析为 float（seat["index"] 是 3.0 不是 3），
+	# 而 GDScript Dictionary 查找区分 int / float 键，必须先规范化为 int，
+	# 否则下方 has(seat_idx) 全部失败、所有员工被误判为空工位。
 	for seat in seats:
 		if seat.get("employee_id"):
-			occupied[seat["index"]] = seat.get("nickname", "员工")
+			seat_info[int(seat["index"])] = {
+				"nickname": seat.get("nickname", "员工"),
+				"action": ACTION_MAP.get(seat.get("action", "sleep"), Employee3D.Action.SLEEP),
+			}
 	for i in range(25):
 		var station: Node3D = _stations[i]
 		var seat_idx := i + 1
-		var has_emp := occupied.has(seat_idx)
+		var has_emp := seat_info.has(seat_idx)
+		var was_visible: bool = station.employee.visible
 		station.employee.visible = has_emp
 		var panel: PanelContainer = _name_panels[i]
 		panel.visible = has_emp
 		if has_emp:
-			_name_labels[i].text = occupied[seat_idx]
-	print("[HiMoyu-SNAP] version=%d occupied=%d" % [
-		snapshot.get("version", 0), occupied.size()
+			var info: Dictionary = seat_info[seat_idx]
+			_name_labels[i].text = info["nickname"]
+			if not was_visible:
+				# 新入职员工从默认睡姿开始（不继承旧动作 / 旧道具）
+				station.employee.reset_to_sleep()
+			station.employee.set_action(int(info["action"]))
+		elif was_visible:
+			# 员工离职：清理全部临时道具并复位睡姿
+			station.employee.reset_to_sleep()
+	print("[HiMoyu-SNAP] version=%d occupied=%d %s" % [
+		snapshot.get("version", 0), seat_info.size(), _action_summary(seat_info)
 	])
+
+
+func _action_summary(seat_info: Dictionary) -> String:
+	var names := {
+		Employee3D.Action.SLEEP: "sleep",
+		Employee3D.Action.PHONE: "phone",
+		Employee3D.Action.SNACK: "snack",
+		Employee3D.Action.WORK: "work",
+	}
+	var counts := {"sleep": 0, "phone": 0, "snack": 0, "work": 0}
+	for key in seat_info.keys():
+		var act_name: String = names.get(int(seat_info[key]["action"]), "sleep")
+		counts[act_name] = int(counts[act_name]) + 1
+	return "actions sleep=%d phone=%d snack=%d work=%d" % [
+		counts["sleep"], counts["phone"], counts["snack"], counts["work"]
+	]
+
+
+# ---------- WebSocket 模式定时截图（阶段 2B-2 验收用） ----------
+
+## --shot=秒:文件名（可重复）+ 可选 --view=x,y,z,size：
+## 正常 WebSocket 快照驱动运行，按时间点把真实运行画面保存到
+## .screenshots/phase2b/，全部截完后自动退出。
+func _run_ws_shots() -> void:
+	DisplayServer.window_set_size(Vector2i(1920, 1080))
+	DisplayServer.window_set_position(Vector2i(0, 0))
+	# 窗口置前 + 关闭垂直同步：防止窗口被遮挡时交换链阻塞、
+	# RenderingServer.frame_post_draw 不触发导致截图挂起
+	get_window().grab_focus()
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	var dir := _ws_shot_dir()
+	DirAccess.make_dir_recursive_absolute(dir)
+	_hud.visible = false
+	if _shot_view_size > 0.0:
+		_set_view(_shot_view, _shot_view_size)
+	var jobs := _shot_jobs.duplicate()
+	jobs.sort_custom(func(a, b): return float(a["wait"]) < float(b["wait"]))
+	var start := float(Time.get_ticks_msec()) / 1000.0
+	print("[HiMoyu-SHOT] jobs=%d view=%s size=%.2f" % [jobs.size(), str(_shot_view), _shot_view_size])
+	for job in jobs:
+		var now := float(Time.get_ticks_msec()) / 1000.0 - start
+		if now < float(job["wait"]):
+			await get_tree().create_timer(float(job["wait"]) - now).timeout
+		await _save_shot(dir, String(job["fname"]))
+	get_tree().quit(0)
+
+
+func _ws_shot_dir() -> String:
+	var project_dir := ProjectSettings.globalize_path("res://").trim_suffix("/")
+	var workspace := project_dir.get_base_dir().get_base_dir()
+	return workspace.path_join(".screenshots").path_join("phase2b")
 
 
 ## 记录名牌布局自检结果：两两不重叠、与工位号牌不重叠。
@@ -447,7 +544,12 @@ func _run_capture() -> void:
 func _save_shot(dir: String, filename: String) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
-	await RenderingServer.frame_post_draw
+	# 有界等待新帧绘制完成（窗口被遮挡时 frame_post_draw 可能不触发，
+	# 无限 await 会让整个截图流程永久挂起；最多等 0.4s 后直接取当前帧）
+	var f0 := Engine.get_frames_drawn()
+	var deadline := Time.get_ticks_msec() + 400
+	while Engine.get_frames_drawn() <= f0 and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()
 	var err := img.save_png(dir.path_join(filename))
 	print("[3D-CAPTURE] %s size=%s err=%d" % [filename, str(img.get_size()), err])

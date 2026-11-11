@@ -6,9 +6,13 @@ extends Node3D
 ##   躯干（圆角箱体）+ 连帽衫口袋 / 抽绳 / 帽子
 ##   四肢（胶囊）分别建构成坐姿与趴在桌面上的手臂
 ##
-## 动画系统：SLEEP 状态下用正弦驱动呼吸、身体前后微晃、头部轻晃，
-## 并周期性生成向上飘散的 Zzz。动作枚举为后续的刷手机 / 吃零食 /
-## 喝咖啡 / 假工作 / 被叫醒 / 罚站预留。
+## 动画系统（阶段 2B-2）：四种动作各有独立姿势关键帧——
+##   SLEEP 趴桌睡觉（正弦呼吸 + 头部轻晃 + Zzz）
+##   PHONE 双手举手机在胸前   SNACK 右手把零食送向嘴边
+##   WORK 坐直看屏幕、双手落在键盘上（带轻微敲击）
+## 动作切换用 0.7s Tween 平滑过渡；手臂拆分为左右独立枢轴
+## （绕肩部刚体旋转 + 缩放驱动），手机 / 零食为按需生成的临时道具。
+## COFFEE / WAKE / STAND 为后续阶段预留，本阶段不实现。
 
 const MeshKit := preload("res://scenes/prototype_3d/mesh_kit.gd")
 
@@ -26,6 +30,42 @@ const HEAD_RADIUS := 0.27
 # 让角色更接近精致 Q 版员工而不是"大头玩偶"
 const HEAD_SCALE := 0.87
 
+# ---- 阶段 2B-2：四种动作的姿势关键帧 ----
+# 手臂姿势用手部目标点（员工本地坐标）描述，运行时换算为肩部枢轴的
+# 旋转四元数 + 缩放，整条手臂绕肩部刚体转动（Q 版小比例下观感自然）。
+# POSE_HAND_* 的 SLEEP 项即建模时的手部位置 → 恢复为恒等旋转，
+# 保证原趴桌睡姿（含左右臂交叠）逐位复现。
+const POSE_LEAN := {
+	Action.SLEEP: 45.0,
+	Action.PHONE: 26.0,
+	Action.SNACK: 22.0,
+	Action.WORK: 15.0,
+}
+const POSE_HEAD := {
+	Action.SLEEP: Vector3(HEAD_PITCH, HEAD_YAW, HEAD_ROLL),
+	Action.PHONE: Vector3(4.0, -3.0, 2.0),
+	Action.SNACK: Vector3(-8.0, 8.0, 4.0),
+	Action.WORK: Vector3(8.0, 12.0, 0.0),
+}
+const POSE_HAND_L := {
+	Action.SLEEP: Vector3(0.045, 0.777, 0.585),
+	Action.PHONE: Vector3(-0.065, 0.950, 0.505),
+	Action.SNACK: Vector3(-0.100, 0.772, 0.400),
+	Action.WORK: Vector3(-0.145, 0.773, 0.440),
+}
+const POSE_HAND_R := {
+	Action.SLEEP: Vector3(-0.010, 0.831, 0.600),
+	Action.PHONE: Vector3(0.065, 0.950, 0.505),
+	Action.SNACK: Vector3(0.050, 1.120, 0.530),
+	Action.WORK: Vector3(0.105, 0.774, 0.440),
+}
+const POSE_TRANSITION_S := 0.7
+const ACTION_NAMES := {
+	Action.SLEEP: "sleep", Action.PHONE: "phone",
+	Action.SNACK: "snack", Action.WORK: "work",
+	Action.COFFEE: "coffee", Action.WAKE: "wake", Action.STAND: "stand",
+}
+
 var appearance: Dictionary = {}
 var action_state: int = Action.SLEEP
 var anim_time: float = 0.0
@@ -37,6 +77,16 @@ var _body_group: Node3D
 var _chest: Node3D
 var _head_pivot: Node3D
 var _arm_group: Node3D
+var _arm_l: Node3D
+var _arm_r: Node3D
+var _props: Node3D
+var _hand_l_off: Vector3
+var _hand_r_off: Vector3
+var _pose_head: Vector3
+var _arm_base_l: Quaternion = Quaternion.IDENTITY
+var _arm_base_r: Quaternion = Quaternion.IDENTITY
+var _is_transitioning := false
+var _action_tween: Tween
 var _zzz_items: Array = []
 var _zzz_timer: float = 0.9
 
@@ -59,14 +109,32 @@ func _ready() -> void:
 	_build_body()
 	_build_head()
 	_build_arms()
+	# 阶段 2B-2：临时道具根节点（手机 / 零食），动作切换时按需增删
+	_props = Node3D.new()
+	_props.name = "Props"
+	add_child(_props)
+	_pose_head = POSE_HEAD[Action.SLEEP]
 
 
 func _process(delta: float) -> void:
 	anim_time += delta
 	_update_zzz(delta)
-	if action_state != Action.SLEEP:
+	# 过渡期间由 Tween 全权驱动姿势，逐帧动画暂停写入，避免互相覆盖抖动
+	if _is_transitioning:
 		return
+	match action_state:
+		Action.SLEEP:
+			_idle_sleep(delta)
+		Action.WORK:
+			_idle_work()
+		Action.PHONE:
+			_idle_phone()
+		Action.SNACK:
+			_idle_snack()
 
+
+## 睡觉：保留原有呼吸起伏、身体微晃、头部轻晃与 Zzz 表现
+func _idle_sleep(delta: float) -> void:
 	var t := anim_time + phase_offset
 
 	# 呼吸：胸腔缓慢起伏
@@ -92,8 +160,209 @@ func _process(delta: float) -> void:
 		_zzz_timer = randf_range(1.5, 2.4)
 
 
+# 非睡姿通用呼吸（幅度略小）
+func _idle_breath(t: float) -> void:
+	var breath := sin(t * 1.9)
+	_chest.scale = Vector3(1.0 + breath * 0.008, 1.0 + breath * 0.015, 1.0 + breath * 0.008)
+
+
+## 工作：坐直看屏幕，左右手交替小幅敲击键盘
+func _idle_work() -> void:
+	var t := anim_time + phase_offset
+	_idle_breath(t)
+	var bob := sin(t * 9.0)
+	_arm_l.quaternion = _arm_base_l * Quaternion(Vector3.RIGHT, deg_to_rad(bob * 1.4))
+	_arm_r.quaternion = _arm_base_r * Quaternion(Vector3.RIGHT, deg_to_rad(-bob * 1.4))
+	_body_group.rotation_degrees.x = float(POSE_LEAN[Action.WORK]) + sin(t * 1.1) * 0.5
+	_head_pivot.rotation_degrees = _pose_head + Vector3(sin(t * 0.9) * 0.8, sin(t * 0.6 + 1.0) * 1.2, 0.0)
+
+
+## 玩手机：双手举在胸前，手部小幅晃动（拇指划屏）
+func _idle_phone() -> void:
+	var t := anim_time + phase_offset
+	_idle_breath(t)
+	_arm_l.quaternion = _arm_base_l * Quaternion(Vector3.RIGHT, deg_to_rad(sin(t * 3.1) * 1.0))
+	_arm_r.quaternion = _arm_base_r * Quaternion(Vector3.RIGHT, deg_to_rad(sin(t * 2.3 + 1.3) * 1.2))
+	_body_group.rotation_degrees.x = float(POSE_LEAN[Action.PHONE]) + sin(t * 1.05) * 0.4
+	_head_pivot.rotation_degrees = _pose_head + Vector3(sin(t * 0.9 + 0.5) * 1.0, sin(t * 0.7) * 0.8, sin(t * 1.2) * 0.9)
+
+
+## 吃零食：头部小幅咀嚼式点头，持零食的右手轻微起伏
+func _idle_snack() -> void:
+	var t := anim_time + phase_offset
+	_idle_breath(t)
+	_head_pivot.rotation_degrees = _pose_head + Vector3(sin(t * 7.0) * 1.3, 0.0, 0.0)
+	_arm_r.quaternion = _arm_base_r * Quaternion(Vector3.RIGHT, deg_to_rad(sin(t * 3.4) * 0.8))
+	_body_group.rotation_degrees.x = float(POSE_LEAN[Action.SNACK]) + sin(t * 1.0) * 0.4
+
+
+# ---------- 动作切换（阶段 2B-2） ----------
+
+## 设置员工动作。重复收到相同动作时直接忽略（快照幂等），
+## 切换动作时先清理旧道具，再用 Tween 平滑过渡到新姿势。
 func set_action(new_action: int) -> void:
+	if new_action == action_state:
+		return  # 相同动作的重复快照：不重播动画
+	if not POSE_LEAN.has(new_action):
+		return  # COFFEE / WAKE / STAND 为后续阶段预留，本阶段保持现状
+	var old_name: String = ACTION_NAMES.get(action_state, "?")
 	action_state = new_action
+	print("[HiMoyu-ACTION] seat=%02d %s -> %s" % [seat_index, old_name, ACTION_NAMES.get(new_action, "?")])
+	_start_transition(new_action)
+
+
+## 员工离场 / 重新入职 / 场次重置时调用：
+## 清理全部临时道具与 Zzz，立即回到默认睡姿，不继承任何旧动作。
+func reset_to_sleep() -> void:
+	if _action_tween and _action_tween.is_valid():
+		_action_tween.kill()
+	_action_tween = null
+	_is_transitioning = false
+	_clear_props()
+	for item in _zzz_items:
+		var node: Label3D = item["node"]
+		node.queue_free()
+	_zzz_items.clear()
+	action_state = Action.SLEEP
+	_pose_head = POSE_HEAD[Action.SLEEP]
+	_arm_base_l = Quaternion.IDENTITY
+	_arm_base_r = Quaternion.IDENTITY
+	_body_group.rotation_degrees.x = BODY_LEAN
+	_head_pivot.rotation_degrees = _pose_head
+	_arm_group.position = Vector3.ZERO
+	_arm_l.quaternion = Quaternion.IDENTITY
+	_arm_r.quaternion = Quaternion.IDENTITY
+	_arm_l.scale = Vector3.ONE
+	_arm_r.scale = Vector3.ONE
+	_zzz_timer = 0.4
+
+
+func _start_transition(target: int) -> void:
+	if _action_tween and _action_tween.is_valid():
+		_action_tween.kill()
+	# 先清理旧道具（如 Phone -> Snack 时移除手机），到位后再生成新道具
+	_clear_props()
+	var lean := float(POSE_LEAN[target])
+	var head_rot: Vector3 = POSE_HEAD[target]
+	var group_pos := _arm_group_pos_for(lean)
+	var q_l := _arm_quat(_arm_l, POSE_HAND_L[target], group_pos)
+	var q_r := _arm_quat(_arm_r, POSE_HAND_R[target], group_pos)
+	var s_l := _arm_scale(_arm_l, POSE_HAND_L[target], group_pos)
+	var s_r := _arm_scale(_arm_r, POSE_HAND_R[target], group_pos)
+	_pose_head = head_rot
+	_arm_base_l = q_l
+	_arm_base_r = q_r
+	_is_transitioning = true
+	_action_tween = create_tween()
+	_action_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_action_tween.set_parallel(true)
+	_action_tween.tween_property(_body_group, "rotation_degrees:x", lean, POSE_TRANSITION_S)
+	_action_tween.tween_property(_head_pivot, "rotation_degrees", head_rot, POSE_TRANSITION_S)
+	_action_tween.tween_property(_arm_group, "position", group_pos, POSE_TRANSITION_S)
+	_action_tween.tween_property(_arm_l, "quaternion", q_l, POSE_TRANSITION_S)
+	_action_tween.tween_property(_arm_r, "quaternion", q_r, POSE_TRANSITION_S)
+	_action_tween.tween_property(_arm_l, "scale", Vector3.ONE * s_l, POSE_TRANSITION_S)
+	_action_tween.tween_property(_arm_r, "scale", Vector3.ONE * s_r, POSE_TRANSITION_S)
+	_action_tween.chain().tween_callback(_finish_transition)
+
+
+func _finish_transition() -> void:
+	_is_transitioning = false
+	# 精确落位（消除插值残差），再生成当前动作的道具
+	_body_group.rotation_degrees.x = float(POSE_LEAN[action_state])
+	_head_pivot.rotation_degrees = _pose_head
+	_spawn_props_for(action_state)
+
+
+## 肩部枢轴随躯干前倾角移动的偏移：让手臂根部始终贴合躯干肩线。
+## SLEEP 前倾角与建模一致 → 返回 (0,0,0)，原睡姿完全不变。
+func _arm_group_pos_for(lean_deg: float) -> Vector3:
+	var base := deg_to_rad(BODY_LEAN)
+	var rad := deg_to_rad(lean_deg)
+	return Vector3(
+		0.0,
+		0.375 * (cos(rad) - cos(base)),
+		0.375 * (sin(rad) - sin(base))
+	)
+
+
+func _arm_base_off(pivot: Node3D) -> Vector3:
+	return _hand_r_off if pivot == _arm_r else _hand_l_off
+
+
+## 把手部目标点（员工本地坐标）换算为肩部枢轴的旋转四元数
+func _arm_quat(pivot: Node3D, hand_abs: Vector3, group_pos: Vector3) -> Quaternion:
+	var base := _arm_base_off(pivot)
+	var off := hand_abs - group_pos - pivot.position
+	return Quaternion(base.normalized(), off.normalized())
+
+
+## 把手部目标点换算为枢轴缩放（目标距离 / 建模臂长）
+func _arm_scale(pivot: Node3D, hand_abs: Vector3, group_pos: Vector3) -> float:
+	var base := _arm_base_off(pivot)
+	var off := hand_abs - group_pos - pivot.position
+	return clampf(off.length() / base.length(), 0.35, 1.15)
+
+
+# ---------- 临时道具（阶段 2B-2） ----------
+
+func _clear_props() -> void:
+	if _props == null:
+		return
+	for child in _props.get_children():
+		child.queue_free()
+
+
+func _spawn_props_for(action: int) -> void:
+	match action:
+		Action.PHONE:
+			_spawn_phone()
+		Action.SNACK:
+			_spawn_snack()
+
+
+## 手机：双手举起位置的深色机身 + 亮屏，屏幕面朝向脸部
+func _spawn_phone() -> void:
+	var phone := Node3D.new()
+	phone.name = "Phone"
+	phone.position = Vector3(0.0, 0.945, 0.500)
+	phone.rotation_degrees = Vector3(-58.0, -6.0, 0.0)
+	_props.add_child(phone)
+	MeshKit.lit(
+		phone,
+		MeshKit.rounded_box(Vector3(0.075, 0.145, 0.014), 0.5, 10, 18),
+		Vector3.ZERO,
+		MeshKit.material(Color("#2c313a"), 0.4, 0.35),
+		Vector3.ZERO,
+		"Body"
+	)
+	MeshKit.lit(
+		phone,
+		MeshKit.rounded_box(Vector3(0.062, 0.126, 0.005), 0.4),
+		Vector3(0.0, 0.004, 0.008),
+		MeshKit.material(Color("#9fd7e8"), 0.25, 0.0, Color("#bfe9f5"), 0.55),
+		Vector3.ZERO,
+		"Screen"
+	)
+
+
+## 零食：一小块金黄色饼干停在嘴边，配两粒碎屑
+func _spawn_snack() -> void:
+	var snack := Node3D.new()
+	snack.name = "Snack"
+	snack.position = Vector3(0.035, 1.140, 0.560)
+	_props.add_child(snack)
+	var cookie := MeshKit.lit(
+		snack,
+		MeshKit.sphere(0.032, 16, 10),
+		Vector3.ZERO,
+		MeshKit.material(Color("#d9a44c"), 0.8),
+		Vector3.ZERO,
+		"Cookie"
+	)
+	cookie.scale = Vector3(1.15, 0.55, 1.15)
+	MeshKit.lit(snack, MeshKit.sphere(0.011), Vector3(0.052, -0.022, 0.028), MeshKit.material(Color("#c98a3c"), 0.85))
+	MeshKit.lit(snack, MeshKit.sphere(0.009), Vector3(-0.040, -0.026, 0.035), MeshKit.material(Color("#e8c27a"), 0.85))
 
 
 # ---------- 材质 ----------
@@ -254,34 +523,52 @@ func _build_arms() -> void:
 	var r_wrist := Vector3(0.115, 0.830, 0.560)
 	var r_hand := Vector3(-0.010, 0.831, 0.600)
 
-	_build_arm(l_shoulder, l_elbow, l_wrist, l_hand, -1.0)
-	_build_arm(r_shoulder, r_elbow, r_wrist, r_hand, 1.0)
-	# 手臂整体随 ArmsOnDesk 轻浮，合并后仍保留该动画
-	MeshKit.bake_static(_arm_group)
+	# 阶段 2B-2：左右臂拆分为独立枢轴节点（外观不变），绕肩部刚体
+	# 旋转即可实现举手机 / 送零食 / 落键盘等姿势；手挂点偏移
+	# = 建模手部位置 - 肩部枢轴，供姿势目标换算使用。
+	_arm_l = _build_arm_pivot("ArmL", l_shoulder)
+	_arm_r = _build_arm_pivot("ArmR", r_shoulder)
+	_build_arm(_arm_l, l_shoulder, l_elbow, l_wrist, l_hand, -1.0)
+	_build_arm(_arm_r, r_shoulder, r_elbow, r_wrist, r_hand, 1.0)
+	_hand_l_off = l_hand - l_shoulder
+	_hand_r_off = r_hand - r_shoulder
+	# 每条手臂单独合并（各 1 个 draw call），枢轴旋转 / 缩放仍驱动整条手臂
+	MeshKit.bake_static(_arm_l)
+	MeshKit.bake_static(_arm_r)
 
 
-func _build_arm(shoulder: Vector3, elbow: Vector3, wrist: Vector3, hand: Vector3, side: float) -> void:
+func _build_arm_pivot(pivot_name: String, shoulder: Vector3) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.name = pivot_name
+	pivot.position = shoulder
+	_arm_group.add_child(pivot)
+	return pivot
+
+
+func _build_arm(pivot: Node3D, shoulder: Vector3, elbow: Vector3, wrist: Vector3, hand: Vector3, side: float) -> void:
 	var fore_dir := (wrist - elbow).normalized()
 	var hand_dir := (hand - wrist).normalized()
 	var upper_dir := (elbow - shoulder).normalized()
+	# 几何整体平移到肩部枢轴的本地空间（所有坐标 - 肩部位置），外观不变
+	var o := -shoulder
 
 	# 整条手臂用一根平滑圆管从肩连到腕：肘部用"拐点外推"的三个点
 	# 倒出圆角，不再使用任何关节球，彻底消除"圆球拼接"的观感。
 	# 拐角倒角半径(约0.075)不小于管半径(0.072)，圆管不会在弯折处自交。
 	var arm_pts := [
-		shoulder,
-		shoulder.lerp(elbow, 0.5) + Vector3(0.015 * side, -0.002, 0.010),
-		elbow - upper_dir * 0.075,
-		elbow + (fore_dir - upper_dir).normalized() * 0.055,
-		elbow + fore_dir * 0.075,
-		elbow.lerp(wrist, 0.5) + Vector3(0.0, 0.004, 0.008),
-		wrist + fore_dir * 0.010,
+		shoulder + o,
+		shoulder.lerp(elbow, 0.5) + Vector3(0.015 * side, -0.002, 0.010) + o,
+		elbow - upper_dir * 0.075 + o,
+		elbow + (fore_dir - upper_dir).normalized() * 0.055 + o,
+		elbow + fore_dir * 0.075 + o,
+		elbow.lerp(wrist, 0.5) + Vector3(0.0, 0.004, 0.008) + o,
+		wrist + fore_dir * 0.010 + o,
 	]
-	MeshKit.tube(_arm_group, arm_pts, 0.072, _mat["shirt"], 10, "Arm")
+	MeshKit.tube(pivot, arm_pts, 0.072, _mat["shirt"], 10, "Arm")
 	# 袖口：沿前臂的一小段加粗圆管，像卷起一圈的袖子
 	MeshKit.tube(
-		_arm_group,
-		[wrist - fore_dir * 0.020, wrist + fore_dir * 0.016],
+		pivot,
+		[wrist - fore_dir * 0.020 + o, wrist + fore_dir * 0.016 + o],
 		0.074,
 		_mat["shirt_dark"],
 		10,
@@ -289,8 +576,8 @@ func _build_arm(shoulder: Vector3, elbow: Vector3, wrist: Vector3, hand: Vector3
 	)
 	# 手腕 → 手背的过渡，避免袖口与手掌之间出现断口
 	MeshKit.tube(
-		_arm_group,
-		[wrist + hand_dir * 0.008, hand - hand_dir * 0.012],
+		pivot,
+		[wrist + hand_dir * 0.008 + o, hand - hand_dir * 0.012 + o],
 		0.044,
 		_mat["skin"],
 		8,
@@ -298,13 +585,13 @@ func _build_arm(shoulder: Vector3, elbow: Vector3, wrist: Vector3, hand: Vector3
 	)
 
 	# 手掌：压扁的球体，平放在桌面 / 另一只小臂上
-	var palm := MeshKit.lit(_arm_group, MeshKit.sphere(0.054), hand, _mat["skin"], Vector3.ZERO, "Hand")
+	var palm := MeshKit.lit(pivot, MeshKit.sphere(0.054), hand + o, _mat["skin"], Vector3.ZERO, "Hand")
 	palm.scale = Vector3(1.05, 0.5, 1.2)
 	# 拇指
 	var thumb := MeshKit.lit(
-		_arm_group,
+		pivot,
 		MeshKit.sphere(0.018),
-		hand + Vector3(0.035 * side, 0.010, -0.015),
+		hand + Vector3(0.035 * side, 0.010, -0.015) + o,
 		_mat["skin"]
 	)
 	thumb.scale = Vector3(1.4, 0.75, 1.0)

@@ -4,10 +4,11 @@
 
 ## 当前阶段
 
-**阶段 2B-1 · 员工动作状态后端系统（已完成并验收，含 2026-11-11 修复轮）**
+**阶段 2B-2 · Godot 员工动作动画系统（已完成，待验收）**
 
-- 最新 Git 提交：`fdf33ab`（2026-11-11 · fix: correct event idempotency and action state locking，已推送 origin/main）
-- 阶段 2B-1 及修复轮（event_id 幂等顺序、动作时间戳微秒精度、state_lock 锁内取 state、文档同步）已全部提交推送，pytest 70/70 通过
+- 最新 Git 提交：`4e2f206`（2026-11-11 · docs: sync development status after phase 2B-1，已推送 origin/main）
+- 阶段 2B-2 改动**尚未提交**，等待验收后统一提交
+- 上一阶段 2B-1（含修复轮）已全部提交推送，pytest 70/70 通过
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
@@ -42,6 +43,12 @@
 | 24 | **礼物→动作映射（阶段 2B-1）** | `src/engine/app/api/routes_mock.py::_apply_gift_action_if_any` | 2026-11-10 | gift_phone→phone / gift_snack→snack / gift_file→work；支持 `seat_index` 指定目标工位 |
 | 25 | **手动动作接口（阶段 2B-1）** | `POST /api/mock/action` | 2026-11-10 | seat_index(1-25) + action(sleep/phone/snack/work)；空工位返回 ok=False |
 | 26 | **2B-1 修复轮** | `routes_mock.py` / `models.py` / `tests` / 文档 | 2026-11-11 | ① event_id 幂等顺序修复：首次请求正确执行入职/礼物动作，第二次才返回 idempotent=true；② action_started_at/action_until 改微秒精度，避免动作提前最多 1 秒过期；③ event/action/leave/reset 四端点统一"先取锁、锁内取 state、锁内完成读取-修改-快照-广播"；④ README/DEVELOPMENT_STATUS 同步 |
+| 27 | **四动作姿势关键帧系统（阶段 2B-2）** | `employee_3d.gd::POSE_LEAN/POSE_HEAD/POSE_HAND_L/POSE_HAND_R` | 2026-11-11 | Sleep/Phone/Snack/Work 各自独立的躯干前倾角+头部朝向+左右手目标点关键帧；SLEEP 项即建模原位（恒等旋转逐位复现原睡姿） |
+| 28 | **手臂枢轴拆分（阶段 2B-2）** | `employee_3d.gd::_build_arms()` | 2026-11-11 | 左右臂拆为独立枢轴节点（绕肩刚体旋转+缩放驱动手部目标点），每臂单独 bake_static 合并（draw call 保持 2/人）；外观不变 |
+| 29 | **动作切换 Tween（阶段 2B-2）** | `employee_3d.gd::set_action()/_start_transition()/_finish_transition()` | 2026-11-11 | 0.7s 平滑过渡（7 属性并行 Tween）；`set_action()` 幂等（相同动作直接返回）；过渡期间逐帧动画暂停写入避免覆盖抖动 |
+| 30 | **临时道具管理（阶段 2B-2）** | `employee_3d.gd::_props/_spawn_phone()/_spawn_snack()/_clear_props()` | 2026-11-11 | 手机（深色机身+亮蓝屏）/零食（金色饼干+碎屑）挂在员工 Props 节点下；切换/离场/重置时统一清理；重新入职默认 Sleep 不继承 |
+| 31 | **快照动作联动（阶段 2B-2）** | `office_full_25.gd::_apply_snapshot()` + `ACTION_MAP` | 2026-11-11 | 协议 v3 `seats[].action` → `set_action()`（null/sleep→SLEEP）；**键必须 `int(seat["index"])` 规范化**（JSON 数字解析为 float，GDScript Dictionary 区分 int/float 键，否则全部查找失败）；新入职 `reset_to_sleep()` 再设动作 |
+| 32 | **验收截图流水线（阶段 2B-2）** | `office_full_25.gd::_run_ws_shots()/_save_shot()/_set_view()` | 2026-11-11 | `--shot=秒:文件名`（可重复）+ `--view=x,y,z,size` 定景；有界等待新帧（0.4s）防窗口遮挡时 frame_post_draw 永久挂起；VSYNC_DISABLED+grab_focus 防遮挡阻塞 |
 
 ## 关键文件清单（只读/保护）
 
@@ -53,7 +60,7 @@
 - `src/game/scenes/office/` — 2D 办公室场景（未修改）
 - `src/game/scenes/characters/` — 2D 人物组件（未修改）
 - `src/game/scenes/prototype_3d/workstation_3d.gd` — 工位组件（未修改）
-- `src/game/scenes/prototype_3d/employee_3d.gd` — 人物模型+动画（未修改）
+- `src/game/scenes/prototype_3d/employee_3d.gd` — 人物模型+动画（阶段 2B-2 已扩展：动作系统，外观/睡姿不变）
 - `src/game/scenes/prototype_3d/room_full_25.gd` — 办公室结构（未修改布局）
 - `src/game/scenes/prototype_3d/mesh_kit.gd` — 程序化建模工具（未修改）
 - `src/game/net/ws_client.gd` — Godot WebSocket 客户端（未修改）
@@ -97,25 +104,48 @@ pytest：**28/28 通过**（1.08s），包括原有 9 项 + 阶段 2A 新增 19 
 - **不修改** 25 工位编号规则（01-25，从左到右从上到下）
 - **不修改** 静态网格合并优化（`MeshKit.bake_static`）
 - **不修改** 相机参数、工位坐标、办公室布局
-- **不修改** 人物模型和睡觉动画
+- **不修改** 人物模型外观和睡觉动画（阶段 2B-2 仅在模型内部拆分手臂枢轴、新增动作系统，SLEEP 姿势逐位复现原睡姿）
 - 不使用 force push，不删除之前的截图和开发记录
 - 不接入抖音 API，不开发礼物/排行榜/集体事件等后续功能
 - 所有外部素材必须有授权；3D 内容全部程序化生成
 - 不修改 `project.godot` 默认主场景（保持 2D）
 
+## 阶段 2B-2 十场景验收结果（2026-11-11）
+
+后端 25 人在场 + 协议 v3 快照驱动，Godot 实际运行验证：
+
+| # | 场景 | 证据 | 结果 |
+|---|---|---|---|
+| 1 | 25 人默认 Sleep | `01_sleep_all.png`（含 Zzz） | ✅ |
+| 2 | 03 号切 Phone | `[HiMoyu-ACTION] seat=03 sleep -> phone` + `02_phone_03_closeup.png`（手机亮屏在手） | ✅ |
+| 3 | 07 号切 Snack | `seat=07 sleep -> snack` + `03_snack_07_closeup.png`（零食在嘴边+碎屑） | ✅ |
+| 4 | 10 号切 Work | `seat=10 sleep -> work` + `04_work_10_closeup.png`（双手在键盘、抬头） | ✅ |
+| 5 | 03 号 Phone→Snack | 运行中切换：旧手机道具消失、零食出现（`05_snack_after_phone_03.png`） | ✅ |
+| 6 | 恢复 Sleep | 趴桌姿势 + Zzz 恢复（`06b_sleep_zzz_03.png`）、道具清理 | ✅ |
+| 7 | 离职补位 | `/api/mock/leave` 后 occupied=24；补位新员工从 Sleep 开始、无道具继承（`07b_rejoined_sleep.png`） | ✅ |
+| 8 | 重复快照不重播 | 4 次快照（version 66-69）仅 1 次 ACTION（动作未变时不重播 Tween） | ✅ |
+| 9 | 场次 Reset | `version=0 occupied=0` + `09_reset_all_empty.png`（25 工位全空、家具完好） | ✅ |
+| 10 | 25 人混合动作 | 19 个 ACTION 同帧切换互不干扰（`05_mixed_actions_all.png`，姿势差异清晰） | ✅ |
+
+验收截图目录：`D:\HiMoyu\.screenshots\phase2b\`
+
+### 阶段 2B-2 调试过程中修复的关键 bug
+
+1. **seat_info float/int 键不匹配（最关键）**：`JSON.parse_string` 把数字统一解析为 float，`seat_info[seat["index"]]` 的键是 `3.0` 而循环用 int `3` 查找，GDScript Dictionary 区分 int/float 键 → 全部 `has()` 失败、所有员工被误判为空工位。修复：建表时 `int(seat["index"])` 规范化。
+2. **道具隐藏在头部网格内**：初版手机/零食坐标 (y≈1.05, z≈0.34) 落在头部球体（中心 (0,1.21,0.31) 半径 0.235）内部，画面看不到道具。修复：手机移到胸前 (0, 0.945, 0.50)、零食贴嘴 (0.035, 1.14, 0.56)，PHONE 手位关键帧同步下移。
+3. **截图挂起两处**：① PowerShell 管道截断 stdout 阻塞 Godot（改 `*>` 重定向）；② 窗口遮挡 + vsync 阻塞 GL 交换链使 `frame_post_draw` 永不触发（grab_focus + VSYNC_DISABLED + 有界等待 `Engine.get_frames_drawn()` 0.4s 兜底）。
+
 ## 下一步待办
 
-1. **阶段 2B-2 · Godot 动作动画**：
-   - 拆分 employee_3d.gd 左右手节点 + hand_pivot
-   - 实现 phone/snack/work 三种姿势 pose 函数
-   - Tween 过渡 + 临时道具 mesh
-   - office_full_25.gd 在 _apply_snapshot 中调用 set_action()
+1. **阶段 2B-2 验收 + 提交**：等待人工审查后提交推送
 2. **阶段 2B-3 · 浏览器模拟台动作控制**：
    - 新增手动动作控制卡片（工位+动作+触发按钮）
    - renderEmployeeList 显示 action 字段
 3. **阶段 2B-4 · 礼物事件与抖音接入**：真实抖音礼物 ID 映射
 
 ## pytest 结果
+
+阶段 2B-2（零后端改动）：**70/70 通过**（1.92s）
 
 阶段 2B-1 + 修复轮：**70/70 通过**
 - 原有阶段 2A 28 个测试全部通过（零回归）
@@ -137,9 +167,23 @@ powershell -ExecutionPolicy Bypass -File scripts\run_3d_preview.ps1 -Scene full2
 # 生成 7 张验收截图（--capture 模式，用 MOCK_NICKNAMES）
 powershell -ExecutionPolicy Bypass -File scripts\run_3d_preview.ps1 -Scene full25 -Capture
 
+# 阶段 2B-2 验收截图（需引擎运行中；--shot=秒:文件名 可重复，--view=x,y,z,size 选景）
+& "D:\Godot_v4.7.2-stable_win64_console.exe" --path "d:\HiMoyu\src\game" "res://scenes/prototype_3d/office_full_25.tscn" -- --shot=8:02_phone_03_closeup.png --view=0,1.0,-4.5,1.8
+
+# 45 秒 FPS 压力测试
+& "D:\Godot_v4.7.2-stable_win64_console.exe" --path "d:\HiMoyu\src\game" "res://scenes/prototype_3d/office_full_25.tscn" -- --soak=45
+
 # pytest 契约测试
 python -m pytest tests/ -v
 ```
+
+## 阶段 2B-2 性能压测结果（2026-11-11）
+
+- 场景：25 员工混合动作（6 sleep + 7 phone + 6 snack + 6 work），1920×1080，MSAA 4x
+- **Avg FPS: 79.4 | Min (1s window) FPS: 75.6**（要求 ≥30）
+- Frame time avg 12.59ms / max 25.32ms / P95 12.96ms
+- Draw calls avg 1415 | Primitives avg ~2.9M | 静态合并表面 85（保持不变）
+- 无每帧节点创建/销毁；动作道具仅在切换时增删
 
 ## 关键技术参数
 
