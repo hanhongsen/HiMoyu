@@ -39,7 +39,7 @@ AI 驱动的互动式虚拟办公室直播项目。观众以员工身份进入�
 | 阶段 1.5 最终 | 最终布局确认：老板室独立在左上、主管独立在左下（分离式管理层）、昵称名牌暖木色底框、性能回归 | 已完成 |
 | **阶段 2A** | **员工入职系统：Python 后端入职规则引擎（10 赞/评论"入职"/入职礼物）、25 工位分配、排队、离场自动补位、WebSocket 协议升级 v2、Godot 3D 按快照驱动 25 工位显隐** | **已完成（2026-11-09 · commit `464755d`）** |
 | **阶段 2B-1** | **员工动作状态后端：Employee 动作字段、apply_action/expire_actions、后台 0.5s 到期检查自动恢复 sleep、WebSocket 协议 v3（seats[].action + action_remaining_s）、礼物→动作映射（gift_phone/gift_snack/gift_file）、POST /api/mock/action 手动动作接口；修复轮：event_id 幂等顺序、微秒精度、state_lock 原子性** | **已完成（2026-11-11 · commit `fdf33ab`）** |
-| **阶段 2B-2** | **Godot 员工动作动画：四动作姿势关键帧（Sleep/Phone/Snack/Work）、手臂枢轴拆分+独立 Tween 切换、手机/零食动态道具、协议 v3 action 快照联动、set_action 幂等、25 人同帧混合动作（Avg FPS 79+）** | **已完成（2026-11-11 · 代码就绪，待 commit）** |
+| **阶段 2B-2** | **Godot 员工动作动画：四动作姿势关键帧（Sleep/Phone/Snack/Work）、手臂枢轴拆分+独立 Tween 切换、手机/零食动态道具、协议 v3 action 快照联动、set_action 幂等、25 人同帧混合动作（Avg FPS 79+）** | **已完成（2026-11-11 · commit `bd53b03`）** |
 | 阶段 2 | 抖音实时互动接入 | 未开始 |
 | 后续 | 管理层事件、排行榜、集体事件、报告称号 | 未开始 |
 

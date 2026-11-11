@@ -4,11 +4,11 @@
 
 ## 当前阶段
 
-**阶段 2B-2 · Godot 员工动作动画系统（已完成，待验收）**
+**阶段 2B-2 · Godot 员工动作动画系统（已完成、已验收、已提交推送）**
 
-- 最新 Git 提交：`4e2f206`（2026-11-11 · docs: sync development status after phase 2B-1，已推送 origin/main）
-- 阶段 2B-2 改动**尚未提交**，等待验收后统一提交
-- 上一阶段 2B-1（含修复轮）已全部提交推送，pytest 70/70 通过
+- 最新 Git 提交：`bd53b03`（2026-11-11 · feat: implement employee action animations in Godot，已推送 origin/main）
+- 阶段 2B-2 十场景验收全部通过，pytest 70/70 零回归，25 人同屏 Avg FPS 79+
+- 阶段 2B-1（含修复轮，commit `fdf33ab`）已全部提交推送
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
@@ -137,11 +137,11 @@ pytest：**28/28 通过**（1.08s），包括原有 9 项 + 阶段 2A 新增 19 
 
 ## 下一步待办
 
-1. **阶段 2B-2 验收 + 提交**：等待人工审查后提交推送
-2. **阶段 2B-3 · 浏览器模拟台动作控制**：
+1. **阶段 2B-3 · 浏览器模拟台动作控制**：
    - 新增手动动作控制卡片（工位+动作+触发按钮）
    - renderEmployeeList 显示 action 字段
-3. **阶段 2B-4 · 礼物事件与抖音接入**：真实抖音礼物 ID 映射
+2. **阶段 2B-4 · 礼物事件与抖音接入**：真实抖音礼物 ID 映射
+3. **阶段 2C · 扩展动作**：咖啡 / 被叫醒 / 罚站 / 管理层巡查
 
 ## pytest 结果
 
