@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-**阶段 2A · 员工入职系统与 WebSocket 实时同步（已完成并验收）**
+**阶段 2B-1 · 员工动作状态后端系统（已完成并验收）**
 
-- 最新 Git 提交：`464755d`（2026-11-09 · feat: implement employee admission system with WebSocket sync）
+- 最新 Git 提交：`待提交`（2026-11-10 · 工作树干净但未提交）
 - 远程分支：`main`（`https://github.com/hanhongsen/HiMoyu`）
 - 本地工作目录：`D:\HiMoyu`
 - Godot 路径：`D:\Godot_v4.7.2-stable_win64.exe`
@@ -34,6 +34,12 @@
 | 17 | **员工数据模型（阶段 2A 扩展）** | `src/engine/app/domain/models.py` | 2026-11-09 | `Employee`（含 `to_public_dict()` 不暴露 user_id）/ `QueueEntry` / `try_enter()` / `leave_employee_by_seat()` |
 | 18 | **Mock 接口扩展（阶段 2A）** | `src/engine/app/api/routes_mock.py` | 2026-11-09 | `/api/mock/event` 调 `dispatch_entry`；新增 `/api/mock/leave`；`repeat` 上限放宽到 1000 |
 | 19 | **Godot WebSocket 快照驱动（阶段 2A）** | `office_full_25.gd::_apply_snapshot()` | 2026-11-09 | 非 capture 模式下：连接 `HimoyuWSClient`，初始隐藏所有员工+名牌，按 `seats[]` 控制 25 工位显隐 |
+| 20 | **员工动作状态系统（阶段 2B-1）** | `src/engine/app/domain/models.py::Employee/OfficeState` | 2026-11-10 | Employee 新增 action+started_at+until+source；`apply_action()` + `expire_actions()` |
+| 21 | **动作配置集中管理（阶段 2B-1）** | `src/engine/app/config.py` | 2026-11-10 | `VALID_ACTIONS` / `ACTION_DEFAULTS` / `GIFT_TO_ACTION` / `EXPIRE_CHECK_INTERVAL` |
+| 22 | **WebSocket 协议 v3（阶段 2B-1）** | `src/engine/app/realtime/protocol.py` | 2026-11-10 | PROTOCOL_VERSION=3；seats[] 新增 `action` + `action_remaining_s`（动态只读投影） |
+| 23 | **后台过期检查（阶段 2B-1）** | `src/engine/app/main.py::lifespan` + `runtime.py::state_lock` | 2026-11-10 | FastAPI lifespan 启动 asyncio.Task `_expire_loop()`（0.5s 间隔），仅在有变化时广播；`asyncio.Lock` 保护 state 修改+broadcast 原子性 |
+| 24 | **礼物→动作映射（阶段 2B-1）** | `src/engine/app/api/routes_mock.py::_apply_gift_action_if_any` | 2026-11-10 | gift_phone→phone / gift_snack→snack / gift_file→work；支持 `seat_index` 指定目标工位 |
+| 25 | **手动动作接口（阶段 2B-1）** | `POST /api/mock/action` | 2026-11-10 | seat_index(1-25) + action(sleep/phone/snack/work)；空工位返回 ok=False |
 
 ## 关键文件清单（只读/保护）
 
@@ -97,13 +103,21 @@ pytest：**28/28 通过**（1.08s），包括原有 9 项 + 阶段 2A 新增 19 
 
 ## 下一步待办
 
-1. **阶段 2B 抖音接入**（规划中，需产品方案确认）：
-   - 抖音开放平台申请
-   - 真实昵称替换模拟昵称
-   - 事件流接入（点赞/评论/礼物）
-   - WebSocket 事件映射
-2. **3D 替换 2D 主场景**：在 25 工位稳定后，将 `office_full_25.tscn` 设为默认主场景
-3. **性能基线**：在阶段 2B 前记录 Godot 性能数据
+1. **阶段 2B-2 · Godot 动作动画**：
+   - 拆分 employee_3d.gd 左右手节点 + hand_pivot
+   - 实现 phone/snack/work 三种姿势 pose 函数
+   - Tween 过渡 + 临时道具 mesh
+   - office_full_25.gd 在 _apply_snapshot 中调用 set_action()
+2. **阶段 2B-3 · 浏览器模拟台动作控制**：
+   - 新增手动动作控制卡片（工位+动作+触发按钮）
+   - renderEmployeeList 显示 action 字段
+3. **阶段 2B-4 · 礼物事件与抖音接入**：真实抖音礼物 ID 映射
+
+## pytest 结果
+
+阶段 2B-1：**65/65 通过**（2.20s）
+- 原有阶段 2A 28 个测试全部通过（零回归）
+- 新增 37 个动作系统测试（TestActionModel 12 + TestActionExpiry 7 + TestSnapshotProtocolV3 7 + TestActionAPI 11）
 
 ## 运行命令速查
 
@@ -143,7 +157,7 @@ python -m pytest tests/ -v
 | 昵称名牌文字 | #44382D, alpha 1.0 | `_build_nickname_overlay()` |
 | 静态合并表面 | 85 | Godot 启动日志 |
 | MockEventIn.repeat 上限 | 1000 | `routes_mock.py::MockEventIn` |
-| WebSocket 协议版本 | 2 | `protocol.py::PROTOCOL_VERSION` |
+| WebSocket 协议版本 | 3 | `protocol.py::PROTOCOL_VERSION` |
 | 入职点赞阈值 | 10 | `config.LIKE_ENTRY_THRESHOLD` |
 | 入职关键词 | "入职" | `config.COMMENT_ENTRY_KEYWORD` |
 | 空工位 | 25 | `config.SEAT_COUNT` |

@@ -5,15 +5,21 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from app import config
 
 
+def utc_now() -> datetime:
+    """返回当前 UTC 时间（带 tzinfo，方便比较）。"""
+    return datetime.now(timezone.utc)
+
+
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return utc_now().isoformat(timespec="seconds")
 
 
 # ---------- 员工数据 ----------
@@ -27,6 +33,12 @@ class Employee:
     joined_at: str
     entry_method: str       # "like" / "comment" / "gift"
 
+    # 阶段 2B：动作状态（默认 sleep，新员工入职时自动初始化）
+    action: str = "sleep"
+    action_started_at: str | None = None
+    action_until: str | None = None
+    action_source: str | None = None
+
     def to_public_dict(self) -> dict:
         """Godot 和模拟台可见的公开快照字段（不暴露 user_id）。"""
         return {
@@ -35,6 +47,8 @@ class Employee:
             "nickname": self.nickname,
             "joined_at": self.joined_at,
             "entry_method": self.entry_method,
+            "action": self.action,
+            "action_source": self.action_source,
         }
 
 
@@ -62,12 +76,15 @@ class SeatState:
     index: int
     employee_id: str | None = None
     nickname: str | None = None
+    # 阶段 2B：动作快照（由 Employee 状态投影，方便前端直接读取）
+    action: str | None = None
 
     def to_dict(self) -> dict:
         return {
             "index": self.index,
             "employee_id": self.employee_id,
             "nickname": self.nickname,
+            "action": self.action,
         }
 
 
@@ -207,6 +224,7 @@ class OfficeState:
         seat = self.seats[free_index - 1]
         seat.employee_id = emp_id
         seat.nickname = employee.nickname
+        seat.action = "sleep"  # 新员工从 sleep 开始
         self.version += 1
 
         return {
@@ -235,6 +253,7 @@ class OfficeState:
         # 清空工位
         seat.employee_id = None
         seat.nickname = None
+        seat.action = None  # 与员工同时清空，避免补位员工继承旧动作
         self.version += 1
 
         # 队首补位
@@ -270,6 +289,7 @@ class OfficeState:
         for seat in self.seats:
             seat.employee_id = None
             seat.nickname = None
+            seat.action = None
         self.version += 1
 
     # ---------- 事件记录（保留阶段 0 接口，新增去重） ----------
@@ -289,3 +309,96 @@ class OfficeState:
         self.event_counts[kind] = self.event_counts.get(kind, 0) + count
         self.last_event = event
         self.version += 1
+
+    # ---------- 阶段 2B：动作状态管理 ----------
+
+    def apply_action(
+        self,
+        employee_id: str,
+        action: str,
+        source: str = "manual",
+        duration_s: float | None = None,
+    ) -> dict:
+        """为指定员工设置动作状态。
+
+        返回值：
+            {"ok": True,  "employee_id": ..., "action": ..., "old_action": ...}  —— 成功
+            {"ok": False, "detail": "..."}                                      —— 失败
+        """
+        if action not in config.VALID_ACTIONS:
+            return {"ok": False, "detail": f"unknown action: {action}"}
+
+        emp = self.employees.get(employee_id)
+        if emp is None:
+            return {"ok": False, "detail": f"employee {employee_id} not in office"}
+
+        old_action = emp.action
+        now = utc_now()
+
+        if action == "sleep":
+            # 显式恢复睡觉：清空所有动作时间字段
+            emp.action = "sleep"
+            emp.action_started_at = None
+            emp.action_until = None
+            emp.action_source = None
+        else:
+            # 确定持续时间
+            d = config.ACTION_DEFAULTS[action]["duration_s"]
+            if duration_s is None:
+                if isinstance(d, tuple):
+                    duration_s = random.uniform(d[0], d[1])
+                else:
+                    duration_s = d
+
+            emp.action = action
+            emp.action_started_at = now.isoformat(timespec="seconds")
+            if duration_s is None or duration_s <= 0:
+                emp.action_until = None
+            else:
+                emp.action_until = (now + timedelta(seconds=duration_s)).isoformat(timespec="seconds")
+            emp.action_source = source
+
+        # 同步 SeatState 冗余快照
+        seat = self.seats[emp.seat_index - 1]
+        seat.action = emp.action
+
+        self.version += 1
+        return {
+            "ok": True,
+            "employee_id": employee_id,
+            "action": action,
+            "old_action": old_action,
+        }
+
+    def expire_actions(self, now: datetime | None = None) -> bool:
+        """检查所有在职员工的临时动作是否到期，到期则恢复 sleep。
+
+        返回 True 表示本轮至少有一个动作被恢复，False 表示无变化。
+        """
+        now = now or utc_now()
+        changed = False
+
+        for emp in self.employees.values():
+            if emp.action == "sleep":
+                continue
+            if not emp.action_until:
+                continue  # work 等持续动作不自动过期
+
+            try:
+                until = datetime.fromisoformat(emp.action_until)
+            except (ValueError, TypeError):
+                continue
+
+            if now >= until:
+                emp.action = "sleep"
+                emp.action_started_at = None
+                emp.action_until = None
+                emp.action_source = None
+                # 同步 SeatState
+                seat = self.seats[emp.seat_index - 1]
+                seat.action = None  # sleep 在快照里用 null 表示默认状态
+                changed = True
+
+        if changed:
+            self.version += 1
+        return changed

@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from app import config
 from app.realtime.hub import hub
 from app.realtime.protocol import build_snapshot
-from app.runtime import get_state, reset_state
+from app.runtime import get_state, reset_state, state_lock
 
 router = APIRouter(prefix="/api", tags=["state"])
 
@@ -24,7 +24,8 @@ async def read_state() -> dict:
 
 @router.post("/session/reset")
 async def reset_session() -> dict:
-    state = reset_state()
-    snapshot = build_snapshot(state)
-    await hub.broadcast(snapshot)
+    async with state_lock:
+        state = reset_state()
+        snapshot = build_snapshot(state)
+        await hub.broadcast(snapshot)
     return snapshot

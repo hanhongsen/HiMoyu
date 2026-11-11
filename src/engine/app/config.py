@@ -36,3 +36,30 @@ NICKNAME_MAX_LENGTH = 16
 
 # 员工 ID 前缀
 EMPLOYEE_ID_PREFIX = "emp_"
+
+# ---------- 阶段 2B 员工动作系统 ----------
+
+# 第一版支持的动作集合
+VALID_ACTIONS = {"sleep", "phone", "snack", "work"}
+
+# 每个动作的默认持续时间（秒）
+# duration_s:
+#   - 0           = 立即结束（sleep 默认）
+#   - (min, max)  = 随机区间（临时动作）
+#   - None        = 持续动作，直到被新动作覆盖（如 work）
+ACTION_DEFAULTS = {
+    "sleep": {"duration_s": 0, "source": "default"},
+    "phone": {"duration_s": (8, 15), "source": "gift"},
+    "snack": {"duration_s": (10, 18), "source": "gift"},
+    "work": {"duration_s": None, "source": "manual"},
+}
+
+# 礼物 → 动作映射（礼物事件携带对应 gift_id 时触发动作）
+GIFT_TO_ACTION = {
+    "gift_phone": "phone",
+    "gift_snack": "snack",
+    "gift_file": "work",
+}
+
+# 动作过期后台检查间隔（秒）
+EXPIRE_CHECK_INTERVAL = 0.5
